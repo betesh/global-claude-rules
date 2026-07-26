@@ -1,0 +1,38 @@
+---
+description: Collapse pass-through functions and rename-only variables after refactors
+alwaysApply: true
+---
+
+# Collapse pass-throughs after refactor
+
+When a refactor leaves a no-op wrapper or rename, remove it in the same change set.
+
+## Pass-through functions
+
+If a function’s body only calls another function (same arguments, same return), **delete the wrapper** and update callers to call the underlying function.
+
+```js
+// ❌ BAD — leftover after fold logic was removed
+export function lettersOnly(text) {
+  return stripNonLetters(text);
+}
+
+// ✅ GOOD — callers use stripNonLetters directly
+```
+
+Keep a thin function only when it still adds behavior: composition of multiple steps, a meaningful bound default, or a stable public API that must not rename yet (document why). Prefer updating callers over keeping a permanent alias.
+
+## Rename-only variables
+
+If a variable is only assigned from another name and then used in its place, **drop the alias** and use the original.
+
+```js
+// ❌ BAD
+const target = letter;
+if (letters[i] !== target) continue;
+
+// ✅ GOOD
+if (letters[i] !== letter) continue;
+```
+
+Do not invent a new name “for clarity” when the existing parameter or binding already is that value.
