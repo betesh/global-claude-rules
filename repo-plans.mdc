@@ -1,0 +1,72 @@
+---
+description: Active plans live in repo docs/plans; shrink to remaining work each commit; delete when done
+alwaysApply: true
+---
+
+# Living plans in docs/plans
+
+## Where plans live
+
+- Put **active** implementation plans in the **owning repo’s** `docs/plans/` (markdown).
+- Do **not** treat `~/.cursor/plans/` (or Cursor `CreatePlan` output) as the source of truth for repo work.
+- If a tool writes a draft under `~/.cursor/plans/`, **in the same planning turn** move it into the owning repo’s `docs/plans/` and treat that path as canonical thereafter. Do not leave the only copy in `~/.cursor/plans/`.
+- **Owning repo:** the repository where the first implementation phase lands. For multi-repo work, keep one living plan in that repo and describe later phases (including other repos) there until ownership clearly moves.
+- Exception: if the plan **creates a new repository**, the plan may live outside that repo until the repo exists; then move it into that repo’s `docs/plans/`.
+
+## Plan mode
+
+- While Cursor **plan mode** is active, creating and editing **`docs/plans/**/*.md` in the owning repo is allowed** (and required when drafting or iterating a plan). That is planning, not implementation.
+- Do **not** use plan mode as a reason to keep the plan only under `~/.cursor/plans/`.
+- Other edits (code, `package.json`, non-plan docs, etc.) still wait until the user approves implementation / leaves plan mode.
+
+## Structure remaining work under checklist items
+
+- Organize the plan as phases with checklist items for remaining work.
+- Put constraints, file paths, algorithms, tests, and item-specific success bars **under the checklist item (or phase) they apply to**, not as a long narrative preamble outside the phases.
+- Prefer nested bullets under `- [ ] **Item**` over separate background/decisions sections that duplicate the same content.
+- A short shared diagram or glossary at the top is fine when several phases need it; do not dump phase-specific detail there.
+- **Do not** add **Decisions**, **Already decided**, **Background**, or similar sections that restate settled choices. Once a choice is made, encode it only as constraints under the phase/checklist items it affects (or under **Out of scope** if the choice is a non-goal). Git history / chat is enough for “why we chose X.”
+- **Out of scope** and **Success criteria** lists at the **end** of the plan are fine for cross-cutting items that do not fit cleanly under a single checklist item or phase. Prefer putting a criterion under its item when it is specific to that item; use the end lists for whole-plan gates and explicit non-goals.
+
+## Preserve nested out-of-scope / deferred notes
+
+When trimming a phase or checklist item, **do not discard** out-of-scope or deferred notes that lived under that item. Either:
+
+1. **Promote** them into the plan’s end **Out of scope** / **deferred** list (so they still migrate into the repo backlog when the plan is later deleted), or
+2. **Append them immediately** to the repo’s deferred backlog (`DEFERRED.md` at the repo root, or the repo’s existing equivalent) in the same commit that removes that section.
+
+Prefer (1) while the plan is still active so deferred items stay visible next to remaining work. Use (2) when promoting would be noisy or the plan is about to be deleted anyway.
+
+## Keep only remaining work
+
+- After each commit that advances a plan, **edit the plan file** so it describes **only what is left**.
+- **Delete** finished phases, completed checklist items, and their nested detail from the plan file. Finished work belongs in **git history**, not in the plan.
+- Do **not** accumulate changelogs in the plan (“Phase 1 done… Phase 2 done…”).
+- Do **not** keep completed work in the plan as checked boxes. **`- [x]` is never a valid plan update** — remove the item entirely (and drop an empty phase heading).
+- Trim end-of-plan **Success criteria** the same way: drop bullets that no longer apply or are already satisfied.
+- Trim end-of-plan **Out of scope** / **deferred** only when the item is truly obsolete or already captured in the deferred backlog — never by silent deletion when removing a finished phase/item (see above).
+
+### Hard gate — plan update in the same commit
+
+**Completing a plan checklist item (or phase) without deleting that item from the plan file in that same commit is a rule violation.**
+
+When a commit finishes work described by a `- [ ]` item (or an entire phase):
+
+1. In **that same commit**, **delete** the finished item(s) and their nested bullets from `docs/plans/…` (and drop an empty phase heading).
+2. **Forbidden substitutes for deletion:** `- [x]`, strike-through, “done”, “completed in …”, or moving finished detail into a “Shipped” / changelog section of the plan.
+3. Do **not** defer the plan edit to a follow-up commit.
+4. Auto-commit applies: the plan shrink is part of the intentional work for that task, not an optional docs pass.
+5. **Before `git commit` on plan-advancing work**, confirm the staged/unstaged plan file(s) contain **no** `- [x]` / `- [X]` checklist lines. If any remain, delete those items and re-stage before committing.
+
+## Plan file lifecycle (agents — do not put this in the plan)
+
+These housekeeping rules apply to you; **do not** restate them inside plan documents (no “living plan / remaining work only”, no “delete this file when done”, no checklist item whose only job is deleting the plan):
+
+- When the last remaining **in-scope** product/work item is complete:
+  1. **Preserve deferred work** — before deleting the plan, move any still-relevant **Out of scope** / **deferred** bullets into the repo’s deferred backlog so they are not lost with the plan file.
+  2. **Default backlog file:** `DEFERRED.md` at the repository root. Create it if missing. Append a short dated section (plan title + bullets); do not rewrite unrelated entries.
+  3. If the repo already maintains an equivalent backlog under another agreed path, append there instead of inventing a second list.
+  4. Do **not** copy **Success criteria** into the backlog (those were gates for the finished plan). Do not copy “never do this” policy items that are already enforced by cursor rules or docs.
+  5. Then **delete** the plan file entirely.
+- Do not leave empty stubs or “completed plan” archives under `docs/plans/` unless the user explicitly asks for an archive elsewhere.
+- Plan content is the work itself (phases, checklists, constraints needed to implement). Meta about how plans are maintained belongs only in this rule.

@@ -1,0 +1,18 @@
+---
+description: Treat the global cursor-rules git repo like any other repo (auto-commit, etc.)
+alwaysApply: true
+---
+
+# Global cursor-rules repository
+
+The directory that holds these global rules (`~/.cursor/rules`) is itself a **tracked git repository**.
+
+## When you edit that repository
+
+If you create, modify, or delete files **inside the global rules repository** (even when the Cursor workspace root is a different project):
+
+- Apply the same repo workflows as for any other git repo you touch — including **auto-commit** after completed intentional work.
+- Run `git status` / `git add` / `git commit` **in the rules repository**, not only in the workspace project.
+- Ending a turn with intentional uncommitted changes in the rules repository is a rule violation (same hard gate as auto-commit).
+
+Do not skip committing global-rule edits because they sit outside the current workspace root.
