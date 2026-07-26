@@ -8,14 +8,15 @@ alwaysApply: true
 ## Where plans live
 
 - Put **active** implementation plans in the **owning repo’s** `docs/plans/` (markdown).
+- **Prefer writing `docs/plans/<name>.md` directly** (Write/edit in the owning repo). Do not rely on Cursor `CreatePlan` as the canonical artifact.
 - Do **not** treat `~/.cursor/plans/` (or Cursor `CreatePlan` output) as the source of truth for repo work.
-- If a tool writes a draft under `~/.cursor/plans/`, **in the same planning turn** move it into the owning repo’s `docs/plans/` and treat that path as canonical thereafter. Do not leave the only copy in `~/.cursor/plans/`.
+- If a tool writes a draft under `~/.cursor/plans/`, the planning turn is **incomplete** until you: (1) write/move the plan into the owning repo’s `docs/plans/`, (2) treat that path as canonical thereafter, and (3) **delete** the `~/.cursor/plans/` draft. Do not leave the only copy in `~/.cursor/plans/`, and do not wait for the user to ask for the move.
 - **Owning repo:** the repository where the first implementation phase lands. For multi-repo work, keep one living plan in that repo and describe later phases (including other repos) there until ownership clearly moves.
 - Exception: if the plan **creates a new repository**, the plan may live outside that repo until the repo exists; then move it into that repo’s `docs/plans/`.
 
 ## Plan mode
 
-- While Cursor **plan mode** is active, creating and editing **`docs/plans/**/*.md` in the owning repo is allowed** (and required when drafting or iterating a plan). That is planning, not implementation.
+- While Cursor **plan mode** is active, creating and editing **`docs/plans/**/*.md` in the owning repo is allowed** (and required when drafting or iterating a plan). That is planning, not implementation — do **not** switch to Agent mode just to create or move a plan file.
 - Do **not** use plan mode as a reason to keep the plan only under `~/.cursor/plans/`.
 - Other edits (code, `package.json`, non-plan docs, etc.) still wait until the user approves implementation / leaves plan mode.
 
