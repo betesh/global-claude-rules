@@ -27,16 +27,27 @@ alwaysApply: true
 - Prefer nested bullets under `- [ ] **Item**` over separate background/decisions sections that duplicate the same content.
 - A short shared diagram or glossary at the top is fine when several phases need it; do not dump phase-specific detail there.
 - **Do not** add **Decisions**, **Already decided**, **Background**, or similar sections that restate settled choices. Once a choice is made, encode it only as constraints under the phase/checklist items it affects (or under **Out of scope** if the choice is a non-goal). Git history / chat is enough for “why we chose X.”
-- **Out of scope** and **Success criteria** lists at the **end** of the plan are fine for cross-cutting items that do not fit cleanly under a single checklist item or phase. Prefer putting a criterion under its item when it is specific to that item; use the end lists for whole-plan gates and explicit non-goals.
+- End-of-plan lists are fine for cross-cutting items that do not fit under a single checklist item:
+  - **Success criteria** — whole-plan gates.
+  - **Out of scope** — explicit non-goals / rejected approaches for this plan (not a pickup backlog).
+  - **Deferred** — later work we still intend to do (migrates to `DEFERRED.md` when the plan is deleted).
+  Prefer putting a criterion under its item when it is specific to that item.
 
 ## Preserve nested out-of-scope / deferred notes
 
-When trimming a phase or checklist item, **do not discard** out-of-scope or deferred notes that lived under that item. Either:
+When trimming a phase or checklist item, **do not discard** notes that lived under that item. Sort them first:
 
-1. **Promote** them into the plan’s end **Out of scope** / **deferred** list (so they still migrate into the repo backlog when the plan is later deleted), or
-2. **Append them immediately** to the repo’s deferred backlog (`DEFERRED.md` at the repo root, or the repo’s existing equivalent) in the same commit that removes that section.
+| Kind | Meaning | Where it goes |
+|------|---------|----------------|
+| **Later work** | We intend to do this in a future plan | Plan end **Deferred** list, or `DEFERRED.md` (see below) |
+| **Non-goal / never** | Rejected approach or permanent constraint | Plan end **Out of scope**, or a cursor rule / standing doc — **not** `DEFERRED.md` |
 
-Prefer (1) while the plan is still active so deferred items stay visible next to remaining work. Use (2) when promoting would be noisy or the plan is about to be deleted anyway.
+Then either:
+
+1. **Promote** into the matching end-of-plan list (**Deferred** vs **Out of scope**), or
+2. For **later work only**, append immediately to `DEFERRED.md` in the same commit that removes that section.
+
+Prefer (1) while the plan is still active. Use (2) when promoting would be noisy or the plan is about to be deleted anyway.
 
 ## Keep only remaining work
 
@@ -45,7 +56,8 @@ Prefer (1) while the plan is still active so deferred items stay visible next to
 - Do **not** accumulate changelogs in the plan (“Phase 1 done… Phase 2 done…”).
 - Do **not** keep completed work in the plan as checked boxes. **`- [x]` is never a valid plan update** — remove the item entirely (and drop an empty phase heading).
 - Trim end-of-plan **Success criteria** the same way: drop bullets that no longer apply or are already satisfied.
-- Trim end-of-plan **Out of scope** / **deferred** only when the item is truly obsolete or already captured in the deferred backlog — never by silent deletion when removing a finished phase/item (see above).
+- Trim end-of-plan **Out of scope** only when the non-goal is obsolete or already enforced by a cursor rule / standing doc.
+- Trim end-of-plan **Deferred** (later work) only when the item is obsolete or already captured in `DEFERRED.md` / another active plan — never by silent deletion when removing a finished phase/item (see above).
 
 ### Hard gate — plan update in the same commit
 
@@ -64,10 +76,30 @@ When a commit finishes work described by a `- [ ]` item (or an entire phase):
 These housekeeping rules apply to you; **do not** restate them inside plan documents (no “living plan / remaining work only”, no “delete this file when done”, no checklist item whose only job is deleting the plan):
 
 - When the last remaining **in-scope** product/work item is complete:
-  1. **Preserve deferred work** — before deleting the plan, move any still-relevant **Out of scope** / **deferred** bullets into the repo’s deferred backlog so they are not lost with the plan file.
-  2. **Default backlog file:** `DEFERRED.md` at the repository root. Create it if missing. Append a short dated section (plan title + bullets); do not rewrite unrelated entries.
+  1. **Preserve later work only** — before deleting the plan, move still-relevant **Deferred** (pickup) bullets into the repo’s deferred backlog. See **What belongs in `DEFERRED.md`** below.
+  2. **Default backlog file:** `DEFERRED.md` at the repository root. Create it if missing **and** there is at least one real pickup item. Append a short dated section (plan title + bullets); do not rewrite unrelated entries. If nothing qualifies, do **not** create or keep an empty / historical `DEFERRED.md`.
   3. If the repo already maintains an equivalent backlog under another agreed path, append there instead of inventing a second list.
-  4. Do **not** copy **Success criteria** into the backlog (those were gates for the finished plan). Do not copy “never do this” policy items that are already enforced by cursor rules or docs.
-  5. Then **delete** the plan file entirely.
+  4. Then **delete** the plan file entirely.
 - Do not leave empty stubs or “completed plan” archives under `docs/plans/` unless the user explicitly asks for an archive elsewhere.
 - Plan content is the work itself (phases, checklists, constraints needed to implement). Meta about how plans are maintained belongs only in this rule.
+
+## What belongs in `DEFERRED.md`
+
+`DEFERRED.md` is a **pickup list**: work we parked and still intend to cycle back to in a later plan. It is **not** a changelog, archive, or dump of a finished plan’s **Out of scope** section.
+
+### Do put in `DEFERRED.md`
+
+- Concrete later work that was **in scope someday**, just not in the plan that just finished (or not in the phase just trimmed).
+- Items phrased as future tasks (“add X”, “migrate Y”, “retrain when Z”) that are **not** already checklist items in another **active** `docs/plans/` file.
+
+### Do not put in `DEFERRED.md`
+
+- **Permanent non-goals / rejected approaches**. Those stay in cursor rules and/or the plan’s **Out of scope** until the plan is deleted — then drop them if already enforced elsewhere; do not “park” them as backlog.
+- **Success criteria** from a finished plan (gates for that plan, not future work).
+- **Historical notes** (“plan X closed”, “moved to Phase A of Y”, “archived from …”). Git history is enough.
+- Work that **already lives** as a `- [ ]` item in an active plan — link/point there; do not duplicate it into `DEFERRED.md`.
+- Policy already stated in `.cursor/rules/` or standing docs.
+
+### Litmus test
+
+If you would not open a new plan whose next checklist item is that bullet, it does not belong in `DEFERRED.md`.
