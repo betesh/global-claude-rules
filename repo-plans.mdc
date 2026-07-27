@@ -45,7 +45,7 @@ When trimming a phase or checklist item, **do not discard** notes that lived und
 Then either:
 
 1. **Promote** into the matching end-of-plan list (**Deferred** vs **Out of scope**), or
-2. For **later work only**, append immediately to `DEFERRED.md` in the same commit that removes that section.
+2. For **later work only**, add or merge into `DEFERRED.md` in the same commit that removes that section (see **Merge before appending** below).
 
 Prefer (1) while the plan is still active. Use (2) when promoting would be noisy or the plan is about to be deleted anyway.
 
@@ -86,26 +86,34 @@ These housekeeping rules apply to you; **do not** restate them inside plan docum
 
 - When the last remaining **in-scope** product/work item is complete:
   1. **Preserve later work only** — before deleting the plan, move still-relevant **Deferred** (pickup) bullets into the repo’s deferred backlog. See **What belongs in `DEFERRED.md`** below.
-  2. **Default backlog file:** `DEFERRED.md` at the repository root. Create it if missing **and** there is at least one real pickup item. Append a short dated section (plan title + bullets); do not rewrite unrelated entries. If nothing qualifies, do **not** create or keep an empty / historical `DEFERRED.md`.
-  3. If the repo already maintains an equivalent backlog under another agreed path, append there instead of inventing a second list.
+  2. **Default backlog file:** `DEFERRED.md` at the repository root. Create it if missing **and** there is at least one real pickup item. Add or merge **actionable bullets only** (see below). If nothing qualifies, do **not** create or keep an empty / historical `DEFERRED.md`.
+  3. If the repo already maintains an equivalent backlog under another agreed path, update that file the same way instead of inventing a second list.
   4. Then **delete** the plan file entirely.
 - Do not leave empty stubs or “completed plan” archives under `docs/plans/` unless the user explicitly asks for an archive elsewhere.
 - Plan content is the work itself (phases, checklists, constraints needed to implement). Meta about how plans are maintained belongs only in this rule.
 
 ## What belongs in `DEFERRED.md`
 
-`DEFERRED.md` is a **pickup list**: work we parked and still intend to cycle back to in a later plan. It is **not** a changelog, archive, or dump of a finished plan’s **Out of scope** section.
+`DEFERRED.md` is a **pickup list** of actionable later work. It is **not** a changelog, archive, provenance log, or dump of a finished plan’s **Out of scope** section. The file should read as a flat (or lightly grouped) list of future tasks someone could pick up — nothing else.
 
 ### Do put in `DEFERRED.md`
 
 - Concrete later work that was **in scope someday**, just not in the plan that just finished (or not in the phase just trimmed).
 - Items phrased as future tasks (“add X”, “migrate Y”, “retrain when Z”) that are **not** already checklist items in another **active** `docs/plans/` file.
 
+### Merge before appending
+
+Before adding a new bullet, read the existing list:
+
+- If the new work **already fits** an existing bullet (same goal, substantial overlap, or a narrower case of a broader item), **reword / broaden / simplify that bullet** in place instead of adding a near-duplicate.
+- Add a separate bullet only when the work is clearly distinct.
+- Prefer fewer, clearer bullets over a growing pile of overlapping ones. Do not preserve old wording for “history.”
+
 ### Do not put in `DEFERRED.md`
 
 - **Permanent non-goals / rejected approaches**. Those stay in cursor rules and/or the plan’s **Out of scope** until the plan is deleted — then drop them if already enforced elsewhere; do not “park” them as backlog.
 - **Success criteria** from a finished plan (gates for that plan, not future work).
-- **Historical notes** (“plan X closed”, “moved to Phase A of Y”, “archived from …”). Git history is enough.
+- **History or provenance** — dated sections, “from plan X”, “added when Y closed”, “moved from Phase A”, “archived from …”, or any note about when/why the bullet entered the file. Git history is enough.
 - Work that **already lives** as a `- [ ]` item in an active plan — link/point there; do not duplicate it into `DEFERRED.md`.
 - Policy already stated in `.cursor/rules/` or standing docs.
 
