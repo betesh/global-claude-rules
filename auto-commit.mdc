@@ -47,6 +47,16 @@ If the user asks for **N fixes** (especially **“1 commit per fix”** or a num
 
 Never batch several completed fixes into one commit, and **never end your turn with uncommitted fixes** the user already asked for.
 
+## Living plans (`docs/plans/`)
+
+Implementing a plan with multiple phases or top-level checklist items is a multi-item request:
+
+1. **One commit per completed phase** (or per top-level `- [ ]` item).
+2. Shrink the plan in that same commit (delete finished items — see `repo-plans.mdc`).
+3. Do **not** implement all phases and land them as a single mega-commit.
+
+This applies even when the user says “implement the plan” without repeating “1 commit per phase.”
+
 ## Discovered unrelated bugs during a task
 
 When working on task **A**, if you discover an unrelated bug **B**, do **not** land both in one commit.
@@ -78,6 +88,7 @@ If you fixed a bug and also updated `ROADMAP.md`, `README.md`, or `docs/` as par
 - Completed implementation/fix/update with file changes → commit before ending your turn.
 - Documentation and backlog updates the user asked for or that record completed work → commit in the same turn.
 - Multiple independent items in one request → **one commit per completed item**.
+- Living-plan work → **one commit per completed phase / top-level checklist item** (see above and `repo-plans.mdc`).
 - Question-only or review-only (no edits) → do not commit.
 - User said **not** to commit, or asked for a PR without committing → follow that instead.
 

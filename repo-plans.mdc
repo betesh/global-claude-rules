@@ -59,17 +59,26 @@ Prefer (1) while the plan is still active. Use (2) when promoting would be noisy
 - Trim end-of-plan **Out of scope** only when the non-goal is obsolete or already enforced by a cursor rule / standing doc.
 - Trim end-of-plan **Deferred** (later work) only when the item is obsolete or already captured in `DEFERRED.md` / another active plan — never by silent deletion when removing a finished phase/item (see above).
 
-### Hard gate — plan update in the same commit
+### Hard gate — one commit per plan phase / checklist item
+
+**Implementing a living plan means one git commit per completed phase (or per top-level `- [ ]` item when phases are thin).** Do **not** batch multiple finished phases into a single commit, even when implementing the whole plan in one session.
+
+Workflow for each phase/item:
+
+1. Implement **only that** phase/item (and its nested bullets).
+2. Run the relevant tests for that slice.
+3. In **that same commit**, **delete** the finished item(s) and their nested bullets from `docs/plans/…` (and drop an empty phase heading).
+4. Commit, then start the next phase.
 
 **Completing a plan checklist item (or phase) without deleting that item from the plan file in that same commit is a rule violation.**
 
-When a commit finishes work described by a `- [ ]` item (or an entire phase):
+Also:
 
-1. In **that same commit**, **delete** the finished item(s) and their nested bullets from `docs/plans/…` (and drop an empty phase heading).
-2. **Forbidden substitutes for deletion:** `- [x]`, strike-through, “done”, “completed in …”, or moving finished detail into a “Shipped” / changelog section of the plan.
-3. Do **not** defer the plan edit to a follow-up commit.
-4. Auto-commit applies: the plan shrink is part of the intentional work for that task, not an optional docs pass.
-5. **Before `git commit` on plan-advancing work**, confirm the staged/unstaged plan file(s) contain **no** `- [x]` / `- [X]` checklist lines. If any remain, delete those items and re-stage before committing.
+1. **Forbidden substitutes for deletion:** `- [x]`, strike-through, “done”, “completed in …”, or moving finished detail into a “Shipped” / changelog section of the plan.
+2. Do **not** defer the plan edit to a follow-up commit.
+3. Auto-commit applies: the plan shrink is part of the intentional work for that task, not an optional docs pass.
+4. **Before `git commit` on plan-advancing work**, confirm the staged/unstaged plan file(s) contain **no** `- [x]` / `- [X]` checklist lines. If any remain, delete those items and re-stage before committing.
+5. When the last in-scope item lands, that commit deletes the plan file (after moving any remaining **Deferred** pickup items to `DEFERRED.md` as required below).
 
 ## Plan file lifecycle (agents — do not put this in the plan)
 
