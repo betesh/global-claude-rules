@@ -1,0 +1,28 @@
+---
+description: Run git against another repo with `git -C DIR`, never `cd DIR && git`
+alwaysApply: true
+---
+
+# Use `git -C DIR`, not `cd DIR && git`
+
+When running a git command against a repository other than the current working directory, pass the path with `-C` instead of changing directories.
+
+```bash
+# ❌ BAD — mutates shell state, and the `cd` can trigger a permission prompt
+cd ../other-repo && git log --oneline -5
+
+# ✅ GOOD
+git -C ../other-repo log --oneline -5
+```
+
+## Why
+
+- The working directory persists between tool calls, so a stray `cd` silently changes where later commands run.
+- `cd` into an unrelated directory often needs its own approval, while `-C` does not.
+- Each command stays self-describing: the repo it targets is visible in the command itself.
+
+## Scope
+
+- Applies to **every** git subcommand (`status`, `diff`, `log`, `show`, `add`, `commit`, …) and to chained/piped invocations.
+- Applies to inspecting sibling repos, dependency checkouts, and the global rules repo alike.
+- Other tools with an equivalent flag (e.g. `npm --prefix DIR`, `make -C DIR`) should use it for the same reasons; prefer absolute or repo-relative paths in tool calls over `cd`.
