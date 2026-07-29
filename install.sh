@@ -82,11 +82,8 @@ if not isinstance(hooks, dict):
     sys.exit(f"install.sh: 'hooks' in {path} must be a JSON object")
 
 def ours(cmd):
-    """Any hook this installer wrote, including from an older clone or name."""
-    return (
-        "hooks/load-rules.sh" in cmd
-        or "hooks/session-start.sh" in cmd
-    )
+    """Any hook this installer wrote."""
+    return ("hooks/load-rules.sh" in cmd)
 
 
 removed = 0
