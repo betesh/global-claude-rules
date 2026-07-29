@@ -1,0 +1,24 @@
+---
+description: Run the single test file while iterating; run the full suite once before committing
+alwaysApply: true
+---
+
+# Run the test file, not the whole suite
+
+While iterating on one test or one module, run **just that file**. A full-suite
+run per edit wastes minutes and buries the failure you are working on.
+
+```bash
+# ❌ BAD — a full run to check one assertion you just changed
+npm test
+
+# ✅ GOOD — whatever the repo's single-file entry point is
+node --test test/foo.test.js
+node -e "import('./test/foo.test.mjs').then((m) => m.default())"
+```
+
+- Check the repo for an existing single-file runner or filter argument before
+  inventing one — most suites have a name filter or accept a path.
+- Run the **full suite once** before committing, not on every edit.
+- Same rule for other slow whole-project checks (lint, typecheck, build): scope
+  them to what you changed while iterating, run them whole before you commit.
