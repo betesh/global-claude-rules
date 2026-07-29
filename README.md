@@ -110,6 +110,3 @@ keep in sync.
 - **Project settings can't override this.** The hooks are installed in user
   settings and fire everywhere. A project that needs different behavior should
   say so in its own `CLAUDE.md`.
-- **Cursor no longer reads these.** The files were `.mdc` with Cursor
-  frontmatter; they are now plain `.md` under `rules/`. Cursor's
-  `~/.cursor/rules/` loader won't see them unless you also symlink them there.

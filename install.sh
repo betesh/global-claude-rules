@@ -86,7 +86,6 @@ def ours(cmd):
     return (
         "hooks/load-rules.sh" in cmd
         or "hooks/session-start.sh" in cmd
-        or ".cursor/rules/*.mdc" in cmd
     )
 
 
