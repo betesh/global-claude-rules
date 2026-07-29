@@ -4,9 +4,10 @@
 > setup and is never ingested as an instruction.
 
 Standing instructions that apply to every repository — auto-commit, living plans,
-focused test runs, and so on. A `SessionStart` hook points Claude Code at
-`rules/*.md` at the start of every session, so the rules bind in every project
-without per-project configuration.
+focused test runs, and so on. Two hooks point Claude Code at `rules/*.md`:
+`SessionStart` for the main session and `SubagentStart` for every subagent. The
+rules bind in every project, and in every agent, without per-project
+configuration.
 
 ## Install
 
@@ -23,8 +24,9 @@ that absolute path in your settings.
 
 The installer:
 
-- writes a `SessionStart` hook into `~/.claude/settings.json` (or
-  `$CLAUDE_CONFIG_DIR/settings.json`), preserving every other setting;
+- writes a `SessionStart` and a `SubagentStart` hook into
+  `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`), preserving
+  every other setting;
 - backs the file up to `settings.json.bak` first;
 - replaces any hook a previous clone of this repo installed, so re-running it is
   safe and idempotent.
@@ -44,7 +46,7 @@ Requires `python3` (used only to edit the JSON settings file safely).
 | Path | Loaded into sessions? | What it is |
 |------|----------------------|------------|
 | `rules/*.md` | **Yes** — every file, every session | The rules themselves |
-| `hooks/session-start.sh` | No | Emits the rule paths as session context |
+| `hooks/load-rules.sh` | No | Emits the rule paths as session context |
 | `install.sh` | No | Registers the hook in your Claude Code settings |
 | `README.md` | No | This file |
 
@@ -72,27 +74,41 @@ is read in full at the start of every session, so length is a real cost.
 
 ## How it works
 
-`hooks/session-start.sh` prints a short preamble plus the absolute path of each
-`rules/*.md` file. Claude Code appends that to the session context, and Claude
-reads the files. The hook lists paths rather than inlining rule bodies because
-hook output is size-limited.
+`hooks/load-rules.sh` prints a short preamble plus the absolute path of each
+`rules/*.md` file. Claude reads the files from there. The hook lists paths rather
+than inlining rule bodies because hook context is size-limited.
 
-It runs on the `startup|resume|clear|compact` matcher, so the rules are
-re-established after a context compaction rather than quietly aging out.
+It is registered on two events:
 
-To check the output without starting a session:
+| Event | Matcher | Matches on | Output |
+|-------|---------|-----------|--------|
+| `SessionStart` | `startup\|resume\|clear\|compact` | session `source` | plain stdout |
+| `SubagentStart` | `*` | `agent_type` | JSON `hookSpecificOutput.additionalContext` |
+
+`SessionStart` includes `compact` so the rules are re-established after a context
+compaction rather than quietly aging out. `SubagentStart` fires once per spawned
+agent and only accepts context as JSON, which is why the installer registers it
+as `load-rules.sh --json`.
+
+To check both outputs without starting a session:
 
 ```sh
-./hooks/session-start.sh
+./hooks/load-rules.sh          # what the main session sees
+./hooks/load-rules.sh --json   # what a subagent sees
 ```
+
+To load the rules for only some agent types, change the `SubagentStart` matcher
+from `*` to an alternation of agent names, e.g. `general-purpose|Plan`. Read-only
+agents like `Explore` arguably don't need them, at the cost of one more thing to
+keep in sync.
 
 ## Caveats
 
-- **Subagents don't get these rules.** The hook fires for the main session only;
-  agents spawned with the Agent tool start cold. Restate anything that matters in
-  the subagent's prompt.
-- **Project settings can't override this.** The hook is installed in user
-  settings and fires everywhere. A project that needs different behavior should
+- **Subagents read the rules themselves.** Each spawned agent spends a few Read
+  calls on them before starting. That is the price of the rules actually binding;
+  narrow the matcher if it becomes a problem.
+- **Project settings can't override this.** The hooks are installed in user
+  settings and fire everywhere. A project that needs different behavior should
   say so in its own `CLAUDE.md`.
 - **Cursor no longer reads these.** The files were `.mdc` with Cursor
   frontmatter; they are now plain `.md` under `rules/`. Cursor's

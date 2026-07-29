@@ -18,4 +18,6 @@ The rules in this repo are loaded into **every** session regardless of which pro
 
 ## Delegating to subagents
 
-Subagents spawned with the Agent tool start cold: the SessionStart hook does **not** run for them, so **they do not have these rules**. When you delegate work that will edit files or touch git, restate the applicable rules in the subagent's prompt, or do that part yourself in the main session. Do not assume a subagent knows to auto-commit, to shrink a plan, or to use `git -C`.
+Subagents spawned with the Agent tool **do** get these rules — a `SubagentStart` hook loads them the same way `SessionStart` does for the main session. Do not restate the rules in a subagent's prompt; that duplicates them into its context for nothing.
+
+What a subagent does **not** get is the conversation: what the user actually asked for, what you already tried, which files matter, and any decision made this session. Put that in the prompt. "Follow the global rules" is already handled; "the user rejected approach X, use Y" is not.
