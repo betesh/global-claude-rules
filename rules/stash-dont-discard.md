@@ -1,9 +1,6 @@
----
-description: Stash experimental work instead of reverting it when you expect to come back to it
-alwaysApply: true
----
-
 # Stash, do not discard
+
+_Experimental work you might return to gets stashed with a findable message, never reverted._
 
 When an experiment has to come out of the tree — it fails a check, it needs to
 land in a different order, or the tree must be clean before you can continue —
@@ -24,9 +21,9 @@ git stash push -m "<what it does>: <what blocked it>" src/
 - This matters most for work you have already **measured**. Measurements are the
   expensive part; discarding the code that produced them means paying for them
   again.
-- For an agent the cost is not only wall-clock. Rewriting discarded work spends
-  context and session usage on output you already produced once, and that budget
-  is what limits how far the task gets. A stash entry costs nothing to keep.
+- The cost is not only wall-clock. Rewriting discarded work spends context and
+  session usage on output you already produced once, and that budget is what
+  limits how far the task gets. A stash entry costs nothing to keep.
 - Reverting is still right for a change that is simply **wrong** — a mistaken
   edit, a debugging probe, a dead end you will not revisit. Stash what you
   expect to come back to.

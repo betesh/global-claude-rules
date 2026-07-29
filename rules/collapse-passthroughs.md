@@ -1,15 +1,12 @@
----
-description: Collapse pass-through functions, rename-only vars, and import-to-export after refactors
-alwaysApply: true
----
-
 # Collapse pass-throughs after refactor
+
+_Delete no-op wrappers, rename-only vars, and import-to-export barrels in the same change set that creates them._
 
 When a refactor leaves a no-op wrapper, rename, or barrel re-export, remove it in the same change set. Prefer updating callers over keeping a permanent alias.
 
 ## Pass-through functions
 
-If a function’s body only forwards to another function (same arguments, same return), **delete the wrapper** and update callers to call the underlying function.
+If a function's body only forwards to another function (same arguments, same return), **delete the wrapper** and update callers to call the underlying function.
 
 ```js
 // ❌ BAD — leftover after behavior was removed / moved
@@ -45,7 +42,7 @@ export function doStuffWithBar(text) {
 }
 ```
 
-Intentional package-boundary entry shims (`export * from 'dependency/…'`) are fine when that file’s **only** job is the boundary — not when leftover after moving helpers out of a kitchen-sink module.
+Intentional package-boundary entry shims (`export * from 'dependency/…'`) are fine when that file's **only** job is the boundary — not when leftover after moving helpers out of a kitchen-sink module.
 
 ## Rename-only variables
 
@@ -60,4 +57,8 @@ if (letters[i] !== target) continue;
 if (letters[i] !== letter) continue;
 ```
 
-Do not invent a new name “for clarity” when the existing parameter or binding already is that value.
+Do not invent a new name "for clarity" when the existing parameter or binding already is that value.
+
+## Finding the callers
+
+Use Grep for the symbol name across the repo before deciding a wrapper is load-bearing. "Something might import it" is not a reason to keep it — check.
