@@ -17,6 +17,6 @@ Do not skip committing rule edits because they sit outside the current working d
 ## Adding or changing a rule
 
 - One concern per file, in `rules/`, as `.md`. The filename is the rule's identifier; other rules cite it by filename.
-- Everything in `rules/*.md` is loaded verbatim into every session. Cost is real — say it once, in the shortest form that still binds.
+- Every file in `rules/` is read in full at the start of every session. Cost is real — say it once, in the shortest form that still binds.
 - Nothing outside `rules/` is loaded. `README.md`, `install.sh`, and `hooks/` are project files, not rules; do not write behavioral instructions into them expecting to be bound by them.
 - A rule that only ever applies to one project belongs in that project instead (`global-rules-scope.md`).
