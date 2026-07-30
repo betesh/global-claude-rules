@@ -93,6 +93,7 @@ These housekeeping rules apply to you; **do not** restate them inside plan docum
   4. Then **delete** the plan file entirely.
 - Do not leave empty stubs or "completed plan" archives under `docs/plans/` unless the user explicitly asks for an archive elsewhere.
 - Plan content is the work itself (phases, checklists, constraints needed to implement). Meta about how plans are maintained belongs only in this rule.
+- Nothing outside the plan may cite it: no phase numbers or plan paths in code, docs, or test names (`no-plan-refs-in-code.md`).
 
 ## What belongs in `DEFERRED.md`
 
