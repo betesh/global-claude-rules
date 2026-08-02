@@ -12,8 +12,9 @@ Tokens alone cannot say how much of the window is gone; a reported percentage is
 what converts them. So this prints tokens always, and a percentage estimate only
 once a `usage-report` event exists to calibrate against.
 
-The window length is an assumption until a report confirms it — override with
-CLAUDE_USAGE_WINDOW_MINUTES.
+The window is exactly five hours. A reported renewal therefore fixes when it
+started, by subtraction, more precisely than the event log can — override the
+length with CLAUDE_USAGE_WINDOW_MINUTES.
 
 Reads the hook's JSON payload on stdin for `session_id`: several agents append to
 one log, so every line it writes is tagged with the session that wrote it, and it
@@ -71,6 +72,11 @@ def parse_args():
         action="store_true",
         help="print how many seconds to wait before starting an agent, and nothing else",
     )
+    parser.add_argument(
+        "--gate",
+        action="store_true",
+        help="refuse the request when the window is spent; otherwise print one estimate line",
+    )
     parser.add_argument("--session", help="session id to tag anything this run appends to the log")
     return parser.parse_args()
 
@@ -78,6 +84,11 @@ def parse_args():
 ARGS = parse_args()
 # stdin is the hook payload only when the harness invoked us; a launcher passes --session.
 SESSION_ID = ARGS.session or (None if ARGS.sleep_seconds else hook_session_id())
+
+# The estimate at which --gate stops letting requests through. Not 100: the last
+# points of a window are worth less than the cost of discovering the ceiling by
+# being refused, and the estimate carries a percentage point or two of slack.
+GATE_AT_PCT = float(os.environ.get("CLAUDE_USAGE_GATE_PCT", "97"))
 
 
 def parse_time(value):
@@ -317,10 +328,186 @@ def tokens_per_minute(requests, since, until):
     return total / minutes if total else 0
 
 
+def calibrate(reports, requests):
+    """Fit `pct = intercept + tokens / per_pct` over the window's reports.
+
+    Least squares across every reading, not the first-to-last delta: with three
+    or more readings the fit is over-determined, so one mistyped percentage bends
+    the line instead of defining it.
+
+    The intercept is the point of it. Spend that the scan cannot see — traffic
+    before the window start it inferred, or transcripts outside the config dir —
+    is a constant offset, and forcing the line through the origin pushes that
+    offset into the slope, which is what makes a ratio fitted from one report
+    disagree with the delta by a factor of two.
+
+    Returns `(per_pct, intercept, n)`; `n` is how many readings backed it, and
+    `n >= 2` is what separates a measured slope from a single-point guess.
+    """
+    points = [(tokens_through(requests, r["_t"]), r["pct"]) for r in reports]
+    if len({t for t, _ in points}) >= 2:
+        n = len(points)
+        sx = sum(t for t, _ in points)
+        sy = sum(p for _, p in points)
+        sxy = sum(t * p for t, p in points)
+        sxx = sum(t * t for t, _ in points)
+        denominator = n * sxx - sx * sx
+        if denominator:
+            slope = (n * sxy - sx * sy) / denominator
+            if slope > 0:
+                return 1 / slope, (sy - slope * sx) / n, n
+    if points:
+        tokens, pct = points[-1]
+        if pct > 0 and tokens > 0:
+            return tokens / pct, 0.0, 1
+    return 0, 0.0, 0
+
+
+def window_state(events):
+    """Everything derived from the log and the transcripts, computed once.
+
+    Every mode reads the same numbers from here so that a gate decision and the
+    line explaining it can never disagree.
+    """
+    # The window is exactly WINDOW long, so a reported renewal fixes its start by
+    # subtraction — and does it better than the log can. A `renewed` event is
+    # written when an agent noticed credit was back, which trails the renewal
+    # itself by however long that took, and every minute of that lag shortens the
+    # window the hook thinks it is in.
+    renews = basis = None
+    for event in reversed(events):
+        if event.get("kind") == "usage-report" and isinstance(event.get("renewsInMin"), (int, float)):
+            candidate = event["_t"] + timedelta(minutes=event["renewsInMin"])
+            if candidate > now:
+                renews = candidate
+                basis = f"reported at {stamp(event['_t'])}"
+                break
+
+    if renews:
+        window_start = renews - WINDOW
+        opened = False
+    else:
+        window_start = find_window_start(events)
+        opened = window_start is None
+        if opened:
+            window_start = now
+        renews = window_start + WINDOW
+        basis = f"no renewal reported in this window; {duration(WINDOW)} after its first request"
+
+    requests, sessions = scan_transcripts(window_start)
+    totals = {name: 0 for name, _ in TOKEN_FIELDS}
+    by_model = {}
+    for _, counts, model in requests.values():
+        for name in totals:
+            totals[name] += counts[name]
+        by_model[model] = by_model.get(model, 0) + sum(counts.values())
+
+    reports = [
+        e for e in events
+        if e.get("kind") == "usage-report" and e["_t"] >= window_start
+        and isinstance(e.get("pct"), (int, float))
+    ]
+    last = reports[-1] if reports else None
+    per_pct, intercept, backing = calibrate(reports, requests)
+
+    spent = sum(totals.values())
+    estimate = intercept + spent / per_pct if per_pct else None
+
+    return {
+        "window_start": window_start, "opened": opened, "requests": requests,
+        "sessions": sessions, "totals": totals, "by_model": by_model, "spent": spent,
+        "reports": reports, "last": last, "per_pct": per_pct, "intercept": intercept,
+        "backing": backing, "estimate": estimate, "renews": renews, "basis": basis,
+    }
+
+
+def gate_reason(events, state):
+    """Why this request must not be sent, or None to let it through.
+
+    Two independent grounds, and they are not equally trustworthy:
+
+    An unexpired `limit-hit` is an observation — a request was actually refused
+    — so it blocks on its own.
+
+    An estimate is not. It has been wrong by a factor of two in this repo's own
+    measurements, and refusing on a bad one idles every agent on the machine
+    until the window turns over, which is the more expensive mistake because
+    nobody notices it. So the estimate only blocks when a measured slope stands
+    behind it (two or more readings) and the renewal it would wait for is a time
+    the log actually knows.
+    """
+    limit_hit = standing_limit_hit(events)
+    if limit_hit:
+        reset_at = parse_time(limit_hit.get("resetAt"))
+        if reset_at and reset_at > now:
+            return (
+                f"a request was refused at {stamp(limit_hit['_t'])}, putting renewal at "
+                f"{stamp(reset_at)} ({duration(reset_at - now)} from now)",
+                reset_at,
+            )
+
+    estimate, last = state["estimate"], state["last"]
+    if estimate is None or estimate < GATE_AT_PCT or state["backing"] < 2:
+        return None
+    if not (state["renews"] > now):
+        return None
+    return (
+        f"the window is ~{min(estimate, 100):.0f}% spent — {state['per_pct']:,.0f} tokens/% "
+        f"fitted on {state['backing']} readings, last the {last['pct']}% at {stamp(last['_t'])}",
+        state["renews"],
+    )
+
+
+def run_gate(events):
+    """Refuse a request outright when credit is gone, else describe the window.
+
+    Exit 2 is what makes this autonomous: the harness drops the prompt before a
+    request is sent, so an exhausted window costs nothing at all. Everything
+    cheaper than this — a warning in context, a rule the model is asked to
+    follow — still spends the request that discovers the window is empty.
+    """
+    state = window_state(events)
+    reason = gate_reason(events, state)
+    if reason:
+        why, until = reason
+        wait = until + timedelta(seconds=random.randint(0, 60))
+        if not newest_sleep_covers(events, until):
+            append_event({"kind": "sleep", "untilT": stamp_seconds(wait),
+                          "reason": f"{why}; gated before the request was sent"})
+        print(
+            f"Credit is out: {why}. Not sending this request. The window renews at "
+            f"{stamp(until)}, {duration(until - now)} from now — wait until then, or set "
+            f"CLAUDE_USAGE_GATE_PCT above {GATE_AT_PCT:.0f} to override.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    if state["estimate"] is not None:
+        print(
+            f"credit ~{min(state['estimate'], 100):.0f}% used "
+            f"({state['spent']:,} tokens at {state['per_pct']:,.0f}/%, "
+            f"{state['backing']} reading{'s' if state['backing'] != 1 else ''}), "
+            f"renews {stamp(state['renews'])} in {duration(state['renews'] - now)}"
+        )
+
+
+def newest_sleep_covers(events, until):
+    """True when a sleep already declared reaches this renewal, so one gated
+    agent does not append a near-duplicate line on every prompt it blocks."""
+    declared = newest(events, "sleep")
+    if not declared or credit_returned_after(events, declared["_t"]):
+        return False
+    when = parse_time(declared.get("untilT"))
+    return bool(when and when >= until - timedelta(minutes=5))
+
+
 def main():
     events = read_events()
     if ARGS.sleep_seconds:
         report_sleep(events)
+        return
+    if ARGS.gate:
+        run_gate(events)
         return
 
     out = []
@@ -337,36 +524,14 @@ def main():
         )
         return
 
-    window_start = find_window_start(events)
-    if window_start is None:
+    state = window_state(events)
+    if state["opened"]:
         log_first_request()
-        window_start = now
-        opened = " (this session opened it)"
-    else:
-        opened = ""
-
-    requests, sessions = scan_transcripts(window_start)
-    totals = {name: 0 for name, _ in TOKEN_FIELDS}
-    by_model = {}
-    for _, counts, model in requests.values():
-        for name in totals:
-            totals[name] += counts[name]
-        by_model[model] = by_model.get(model, 0) + sum(counts.values())
-    spent = sum(totals.values())
-
-    report = None
-    for event in reversed(events):
-        if event.get("kind") == "usage-report" and event["_t"] >= window_start:
-            report = event
-            break
-
-    renews = None
-    if report and isinstance(report.get("renewsInMin"), (int, float)):
-        renews = report["_t"] + timedelta(minutes=report["renewsInMin"])
-        basis = f"reported at {stamp(report['_t'])}"
-    else:
-        renews = window_start + WINDOW
-        basis = f"assumes a {duration(WINDOW)} window — unconfirmed"
+    window_start = state["window_start"]
+    opened = " (this session opened it)" if state["opened"] else ""
+    requests, sessions = state["requests"], state["sessions"]
+    totals, by_model, spent = state["totals"], state["by_model"], state["spent"]
+    renews, basis = state["renews"], state["basis"]
 
     out.append(
         f"  window   started {stamp(window_start)}, {duration(now - window_start)} ago{opened}"
@@ -378,17 +543,6 @@ def main():
             f"  renews   {stamp(renews)} — that has passed, so the window should have reset "
             f"already ({basis}); the next request confirms it, so log a renewed event"
         )
-    if report:
-        # The start is only known as well as the first event logged in the window,
-        # which can trail the real first request by several minutes. Disagree out
-        # loud only when the gap is larger than that slack.
-        observed = renews - window_start
-        if abs(observed - WINDOW) > timedelta(minutes=15):
-            out.append(
-                f"  note     that makes this window {duration(observed)}, not the assumed "
-                f"{duration(WINDOW)} — correct usage/notes.md"
-            )
-
     if requests:
         breakdown = ", ".join(f"{name} {totals[name]:,}" for name, _ in TOKEN_FIELDS)
         out.append(
@@ -404,26 +558,18 @@ def main():
     else:
         out.append("  spent    no transcript traffic recorded in this window yet")
 
-    reports = [e for e in events if e.get("kind") == "usage-report" and e["_t"] >= window_start
-               and isinstance(e.get("pct"), (int, float))]
-    last = reports[-1] if reports else None
-    per_pct = 0
-    if len(reports) >= 2 and requests:
-        first = reports[0]
-        delta_pct = last["pct"] - first["pct"]
-        delta_tokens = tokens_through(requests, last["_t"]) - tokens_through(requests, first["_t"])
-        if delta_pct > 0 and delta_tokens > 0:
-            per_pct = delta_tokens / delta_pct
-    if not per_pct and last and requests:
-        measured = tokens_through(requests, last["_t"])
-        if last["pct"] > 0 and measured > 0:
-            per_pct = measured / last["pct"]
+    last, per_pct = state["last"], state["per_pct"]
 
     if per_pct:
-        estimate = last["pct"] + (spent - tokens_through(requests, last["_t"])) / per_pct
+        estimate = state["estimate"]
+        fitted = (
+            f"fitted on {state['backing']} readings"
+            if state["backing"] >= 2
+            else f"from the single {last['pct']}% reading at {stamp(last['_t'])}, which cannot "
+                 "separate spend the scan misses from the rate — treat it as a guess"
+        )
         line = (
-            f"  estimate ~{min(estimate, 100):.0f}% used, from {per_pct:,.0f} tokens/% calibrated "
-            f"on the {last['pct']}% reported at {stamp(last['_t'])}"
+            f"  estimate ~{min(estimate, 100):.0f}% used, {per_pct:,.0f} tokens/% {fitted}"
         )
         if estimate >= 100:
             line += "; that calibration says the window is already spent — expect a refusal, and "

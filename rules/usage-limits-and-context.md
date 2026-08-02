@@ -36,16 +36,21 @@ printf '%s\n' '{"t":"2026-07-31T15:04:05Z","session":"<your-session-id>","kind":
   >> <rules-repo>/usage/events.jsonl
 ```
 
-Kinds worth logging, all with a `t` timestamp in UTC and a `session`:
+Log only what the transcripts cannot tell you later, all with a `t` timestamp in UTC and a
+`session`:
 
 | kind | fields | when |
 |---|---|---|
-| `first-request` | — | your first server call of a session, when the log shows no open window |
+| `usage-report` | `pct`, `renewsInMin`, plus what was running | the user tells you how much credit is spent and when it renews |
 | `limit-hit` | `resetAt` when the error states one | the moment a request is refused for credit |
 | `sleep` | `untilT`, `reason` | before you sleep, so another agent does not duplicate the wait |
-| `renewed` | — | a request succeeds after a `limit-hit` |
-| `context` | `pct`, `tokens`, `limit` | whenever a `/context` reading is in front of you |
-| `usage-report` | `pct`, `renewsInMin`, plus what was running | the user tells you how much credit is spent and when it renews |
+
+Nothing else. Token counts, request counts, when a window opened, which sessions were running —
+all of it is already in the transcripts, timestamped per request, and can be reconstructed for
+**any past moment** long after the fact. So a percentage the user reports needs no token count
+taken alongside it; the tokens can be attached to it later. What cannot be recovered is the
+percentage itself, a refusal, and another agent's intent to wait, which is exactly the three kinds
+above.
 
 ## Before a long unattended run, read the log
 
@@ -91,15 +96,26 @@ commit is two or three more, and the point of the sleep was that none of them ca
 
 An agent cannot decide to sleep for free. Rules and project files are injected into context by
 the harness, but acting on them requires the model to run, which is the request you were trying
-to avoid — so a freshly started agent always costs at least one round trip before it can conclude
-that credit is out.
+to avoid — so by the time you conclude that credit is out, you have already spent the round trip
+that discovering it cost. No rule written here can change that, which is why the enforcement is
+not a rule.
 
-Only code that runs **outside** the model can prevent that, which is what the rules repo's
-`SessionStart` usage hook is for: it reads the shared log before any request is sent, and when the
-newest `limit-hit` carries a `resetAt` still in the future it says so at the top of your context.
-Seeing that, do not start the work — answer in one turn and stop. If the block is absent, the hook
-is not installed on this machine (`install-usage-hook.sh`), and nothing is watching the window for
-you.
+Code that runs **outside** the model does it instead, and `install-usage-hook.sh` installs both
+halves:
+
+- A **`SessionStart`** report puts the window state at the top of your context — where it stands,
+  what has been spent, and what that converts to as a percentage.
+- A **`UserPromptSubmit`** gate runs on every prompt and exits 2 when the window is spent, so the
+  harness drops the prompt and nothing is sent at all. This is the half that matters while a
+  session is draining: the report runs once, before that session has spent anything.
+
+The gate refuses on an observed refusal outright, but on an **estimate** only when two or more
+readings back it — a single reading cannot separate spend the scan misses from the rate, and
+idling every agent on a bad estimate is the more expensive mistake, because nobody notices it.
+`CLAUDE_USAGE_GATE_PCT` moves the threshold; a crash in it always fails open.
+
+If no window block appears at session start, neither hook is installed on this machine and nothing
+is watching the window for you.
 
 ## Refine the estimate from a reported reading
 
@@ -143,11 +159,17 @@ and model. Summed across **all** transcripts modified since the window start, th
 traffic for every agent on this machine: the closest thing to measured spend available locally,
 and it costs no request to compute.
 
-Tokens are not percent, and a `usage-report` is what converts them. Tokens accumulated since the
-window start, divided by the reported pct, gives tokens-per-percent; from then on the running sum
-predicts exhaustion by itself until a later report corrects the ratio. Track the components
-separately rather than summing them raw — cache reads, fresh input, and output are not priced
-alike, so a ratio fitted to one traffic mix will mispredict another.
+Tokens are not percent, and a `usage-report` is what converts them. Convert by fitting a line —
+`pct = intercept + tokens / per_pct` — across **every** reading in the window, not by dividing one
+reading's tokens by its percentage. The intercept is why: spend the scan cannot see, from before
+the window start it inferred or from transcripts outside the config dir, is a constant offset, and
+forcing the line through the origin pushes that offset into the slope. Measured here, that error
+was a factor of two, and in the direction that reports a live window as exhausted.
+
+Two readings give a usable slope, three make it over-determined so one mistyped percentage bends
+the line instead of defining it. Track the components separately rather than summing them raw —
+cache reads, fresh input, and output are not priced alike, so a ratio fitted to one traffic mix
+will mispredict another, and a mix that is ~98% cache read cannot tell you what the others cost.
 
 Code outside the model does the scanning: a `SessionStart` hook in the rules repo already reports
 the window state, the tokens spent in it, and a calibrated percentage when a report exists. Read

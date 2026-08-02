@@ -1,6 +1,7 @@
 #!/bin/sh
-# Install (or remove) the SessionStart hook that reports the shared credit
-# window before the model runs.
+# Install (or remove) the two hooks that watch the shared credit window:
+# a SessionStart report of where the window stands, and a UserPromptSubmit
+# gate that drops a prompt rather than spend a request against a spent window.
 #
 #   ./install-usage-hook.sh              install / update the hook
 #   ./install-usage-hook.sh --uninstall  remove it
@@ -18,6 +19,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 HOOK="$SCRIPT_DIR/hooks/usage-window.sh"
+GATE="$SCRIPT_DIR/hooks/usage-gate.sh"
 MODE=install
 
 for arg in "$@"; do
@@ -39,11 +41,13 @@ command -v python3 >/dev/null 2>&1 || {
 	exit 1
 }
 
-[ -f "$HOOK" ] || {
-	echo "install-usage-hook.sh: hook script not found at $HOOK" >&2
-	exit 1
-}
-chmod +x "$HOOK"
+for script in "$HOOK" "$GATE"; do
+	[ -f "$script" ] || {
+		echo "install-usage-hook.sh: hook script not found at $script" >&2
+		exit 1
+	}
+	chmod +x "$script"
+done
 
 CONFIG_DIR=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 SETTINGS="$CONFIG_DIR/settings.json"
@@ -52,20 +56,33 @@ mkdir -p "$CONFIG_DIR"
 # `resume` and `compact` are left out: they continue a session whose window is
 # already reported, and re-reporting it would spend context to say the same
 # thing.
-HOOK_PATH="$HOOK" SETTINGS_PATH="$SETTINGS" MODE="$MODE" python3 -c '
+HOOK_PATH="$HOOK" GATE_PATH="$GATE" SETTINGS_PATH="$SETTINGS" MODE="$MODE" python3 -c '
 import json, os
 print(json.dumps({
     "settings": os.environ["SETTINGS_PATH"],
-    "tag": "hooks/usage-window.sh",
+    "tag": "hooks/usage-",
     "mode": os.environ["MODE"],
     "entries": [
         {"event": "SessionStart", "matcher": "startup|clear",
          "command": os.environ["HOOK_PATH"]},
+        {"event": "UserPromptSubmit", "matcher": "",
+         "command": os.environ["GATE_PATH"]},
     ],
 }))' | python3 "$SCRIPT_DIR/hooks/write-settings-hook.py"
 
 if [ "$MODE" = install ]; then
 	echo "Verifying hook output..."
 	"$HOOK" </dev/null | sed 's/^/  | /'
+	echo
+	echo "Verifying the prompt gate..."
+	# Capture before printing: in a pipeline the status is sed's, not the gate's,
+	# so piping straight to sed would report every run as a pass.
+	GATE_OUT=$("$GATE" </dev/null 2>&1) && GATE_STATUS=0 || GATE_STATUS=$?
+	[ -n "$GATE_OUT" ] && printf '%s\n' "$GATE_OUT" | sed 's/^/  | /'
+	if [ "$GATE_STATUS" -eq 2 ]; then
+		echo "  | (exit 2 — prompts are dropped until the window renews)"
+	else
+		echo "  | (exit 0 — prompts are being sent)"
+	fi
 	echo "Done. The window state above is what each new session will see."
 fi
