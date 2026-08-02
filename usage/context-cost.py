@@ -13,8 +13,10 @@ fixed overhead instead. A long-lived session carries its whole history across th
 boundary, so that invisible share is usually the largest one — measured at 59% in
 one window, against 8% for tool results. Reported here as "carried in".
 
-With no argument, uses the newest usage-report in events.jsonl to place the
-window: renewal minus five hours.
+Everything measured comes from the transcripts. With no argument the newest
+usage-report in events.jsonl places the window — renewal minus five hours — but
+that log is a scratch record of what agents observed and can be emptied at any
+time, so pass the start explicitly and nothing here depends on it.
 """
 
 import glob
@@ -67,6 +69,84 @@ def blocks(content):
             c = b.get("content")
             out.append(("tool result", len(c) if isinstance(c, str) else len(json.dumps(c or ""))))
     return out
+
+
+def usage_lines(path):
+    """(when, usage, request key) for each assistant request in a transcript.
+
+    One request streams as several lines sharing a requestId, each carrying the
+    running totals, so the key is what lets a caller keep the last of them and
+    count the request once.
+    """
+    for line in open(path, errors="replace"):
+        if '"usage"' not in line:
+            continue
+        try:
+            e = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        usage = (e.get("message") or {}).get("usage")
+        if e.get("type") != "assistant" or not isinstance(usage, dict):
+            continue
+        try:
+            when = datetime.fromisoformat((e.get("timestamp") or "").replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        yield when, usage, e.get("requestId") or e.get("uuid")
+
+
+def context_size(usage):
+    """What a request sent, which is what the session was holding at that moment.
+
+    Output tokens are not context: they are produced by the request, not carried
+    into it, and they reach the next request as part of its cached prefix.
+    """
+    return (usage.get("input_tokens", 0)
+            + usage.get("cache_creation_input_tokens", 0)
+            + usage.get("cache_read_input_tokens", 0))
+
+
+def carried_per_session(since):
+    """What each session spent on history it already held when the window opened.
+
+    Context at the boundary times requests since it: every one of those requests
+    re-sent that history, so the product is what clearing at the boundary would
+    have saved. A session whose first request came after the boundary brought
+    nothing in and scores zero, however large it has since grown — clearing it
+    saves only what it just paid for.
+    """
+    rows, cache_read = [], 0
+    for path in sorted(glob.glob(os.path.join(CONFIG_DIR, "projects", "*", "*.jsonl"))):
+        try:
+            if datetime.fromtimestamp(os.path.getmtime(path), timezone.utc) < since:
+                continue
+        except OSError:
+            continue
+        at_start, after = 0, {}
+        for when, usage, key in usage_lines(path):
+            if when <= since:
+                at_start = context_size(usage)
+            else:
+                after[key] = usage
+        if not after:
+            continue
+        cache_read += sum(u.get("cache_read_input_tokens", 0) for u in after.values())
+        rows.append((at_start * len(after), at_start, len(after), path))
+    return sorted(rows, reverse=True), cache_read
+
+
+def report_carried(since):
+    rows, cache_read = carried_per_session(since)
+    print(f"\ncarried in, per session (context at {since:%H:%M}Z × requests since)\n")
+    print(f"  {'session':56s} {'at start':>9s} {'req':>5s} {'carried':>13s}  share")
+    for carried, at_start, requests, path in rows:
+        name = f"{os.path.basename(os.path.dirname(path))}/{os.path.basename(path)[:8]}"
+        share = f"{100 * carried / cache_read:5.1f}%" if cache_read else "    -"
+        print(f"  {name[-56:]:56s} {at_start:>9,} {requests:>5} {carried:>13,}  {share}")
+    total = sum(r[0] for r in rows)
+    share = f"{100 * total / cache_read:5.1f}%" if cache_read else "    -"
+    print(f"  {'TOTAL':56s} {'':9s} {'':5s} {total:>13,}  {share}")
+    print(f"\n  window cache-read {cache_read:,} across {len(rows)} sessions")
 
 
 def main():
@@ -142,6 +222,8 @@ def main():
     if cache_read:
         print(f"\nmeasured cache-read this window: {cache_read:,} "
               f"({100 * total / cache_read:.0f}% accounted for)")
+
+    report_carried(since)
 
 
 main()

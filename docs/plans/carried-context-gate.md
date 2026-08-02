@@ -15,23 +15,24 @@ continuing will cost.
 
 ## Phase 1 — measure what carrying costs, per session
 
-- [ ] Extend `usage/context-cost.py` with a per-session view: for each transcript active in the
-      window, its context size at the window start, its request count since, and the product — the
-      tokens it spent purely on history it brought in. Print the share of window cache-read each one
-      accounts for.
-      - The existing whole-window attribution stays; this is a second table keyed by transcript.
-      - Context size at a moment = the last `message.usage` at or before it, summed over
-        `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`. Output tokens are
-        not context.
-      - A transcript whose first request is after the window start carries nothing in; it must
-        report zero, not its current size.
-- [ ] Run it over the windows already in `usage/events.jsonl` and record in `usage/notes.md`: the
-      distribution of carried-in sizes, and how many points each cost.
+- [ ] Correct the request count in the whole-window attribution, which counts every streaming line
+      as a request instead of every `requestId`.
+      - Measured over one window: 705 lines against 368 requests, and a cache-read total of
+        87.4M against the 49.1M the deduped scan and the SessionStart hook both report. Every
+        figure the table prints is a product with that count, so all of them are inflated ~1.8x.
+      - The per-session view already dedupes; give both the same scan rather than two.
+      - The 59% carried-in baseline in `notes.md` came from the inflated count. Re-derive it in the
+        same commit, or say in `notes.md` that it is superseded.
+- [ ] Run the per-session view over a full window whose start the hook recorded itself, and record
+      in `usage/notes.md`: the distribution of carried-in sizes, and how many points each cost.
       - This is what sets the gate's threshold. It must come from that run, not from reasoning —
-        write it down with the windows it was measured over beside it.
-      - The known data point to reproduce: a 255,765-token session ran 16:11→20:28 across an
-        18:51 boundary. If the new view does not surface that one as the largest carrier, it is
-        wrong.
+        write it down with the window it was measured over beside it.
+      - Wait for a window the hook dated. Earlier figures were measured against boundaries derived
+        from readings since discarded as unreliable, so a run against one of those is not evidence
+        and cannot be used to check this one.
+      - What the view must satisfy, independent of any remembered figure: a session whose first
+        request falls after the boundary reports zero however large it has grown, and the carried
+        total never exceeds the window's measured cache-read.
 
 ## Phase 2 — gate the first prompt after a boundary
 
