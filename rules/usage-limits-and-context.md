@@ -52,7 +52,9 @@ Kinds worth logging, all with a `t` timestamp in UTC and a `session`:
 Reduce it newest-first:
 
 - A `limit-hit` whose `resetAt` is still in the future means credit is out **now**. Sleep until
-  then rather than discovering it again — another agent already paid for that information.
+  then rather than discovering it again — another agent already paid for that information. But a
+  `renewed`, or a reported percentage under 100, logged **after** that hit cancels it: a window can
+  renew hours before the reset a refusal reported, and a `resetAt` is an upper bound, not a floor.
 - Otherwise a `usage-report` newer than the last `renewed` wins: it states the renewal directly,
   so use it instead of reconstructing one.
 - Otherwise take the earliest `first-request` after the last `renewed`. That is the window start;
@@ -74,8 +76,13 @@ window costs more than the reply that announced the sleep.
 If the user prompts you mid-sleep, the model has already been invoked and that request is spent —
 you cannot refuse it back. What you can still control is everything after it: **answer in one
 turn, with zero tool calls**, restate when you will resume, and stop. Do not treat a question as
-permission to resume, and do not start the queued work because you happen to be awake. Only an
-explicit instruction to continue ends the sleep early.
+permission to resume, and do not start the queued work because you happen to be awake.
+
+Two things end a sleep early: an explicit instruction to continue, and **evidence that credit came
+back** — a reported percentage under 100, or a request that plainly succeeded. The wait exists to
+avoid spending against an exhausted window; once the window is open, continuing to wait is pure
+waste, and invisible waste, because nobody notices the agents that sat idle. Stop the background
+wait, log `renewed`, and resume.
 
 The same applies to a request that looks trivial. "Just add one line to a file" is a tool call, a
 commit is two or three more, and the point of the sleep was that none of them can be afforded.
