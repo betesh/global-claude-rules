@@ -120,6 +120,24 @@ deciding to sleep, before starting something that cannot be resumed halfway. It 
 line and is cheaper than being wrong about the window. Do not ask on a cadence; a reading you
 would not act on is spend.
 
+## The transcripts are a local spend proxy
+
+Every session writes a JSONL transcript under the projects directory of the Claude config dir
+(`$CLAUDE_CONFIG_DIR`, else `~/.claude`), and each assistant message in it carries a
+`message.usage` object — input, output, and cache read/creation token counts — with a timestamp
+and model. Summed across **all** transcripts modified since the window start, that is total
+traffic for every agent on this machine: the closest thing to measured spend available locally,
+and it costs no request to compute.
+
+Tokens are not percent, and a `usage-report` is what converts them. Tokens accumulated since the
+window start, divided by the reported pct, gives tokens-per-percent; from then on the running sum
+predicts exhaustion by itself until a later report corrects the ratio. Track the components
+separately rather than summing them raw — cache reads, fresh input, and output are not priced
+alike, so a ratio fitted to one traffic mix will mispredict another.
+
+Have code outside the model do the scanning — the same `SessionStart` hook that reads the log is
+the right place. A scan the model performs costs the request it was trying to save.
+
 Keep the running conclusions in `<rules-repo>/usage/notes.md` — window length when it disagrees
 with the assumption, how early limits arrive under N concurrent agents, measured cost per turn and
 the conditions it was measured under, anything about renewal that surprised you. Refine what is
