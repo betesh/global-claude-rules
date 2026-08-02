@@ -48,6 +48,7 @@ Requires `python3` (used only to edit the JSON settings file safely).
 | `rules/*.md` | **Yes** — every file, every session | The rules themselves |
 | `hooks/load-rules.sh` | No | Emits the rule paths as session context |
 | `hooks/usage-window.sh` + `usage_window.py` | No | Emits the credit-window state as session context |
+| `hooks/plan-written.py` | Only when it fires | Nudges toward `/clear` after a plan file is written whole |
 | `hooks/write-settings-hook.py` | No | Edits settings.json for both installers |
 | `install.sh` | No | Registers the rules hooks in your Claude Code settings |
 | `install-usage-hook.sh` | No | Registers the usage-window hook |
@@ -66,6 +67,21 @@ never be mistaken for a rule.
 | `run-focused-tests.md` | Iterate on one test file; run the full suite once before committing |
 | `git-c-not-cd.md` | Target other repos with `git -C DIR`, never `cd DIR && git` |
 | `usage-limits-and-context.md` | Pool what agents learn about the shared credit window in `usage/`; treat context size as spend |
+
+## The plan-written hook
+
+`install.sh` also registers a `PostToolUse` hook on `Write`. When the file written
+is under `docs/plans/`, it adds one paragraph of context: make the record durable,
+commit, then tell the user this is a good moment to `/clear`.
+
+That moment is when a session's context is worth least and costs most — what
+matters was just written to a file, and the conversation that produced it would
+otherwise be re-sent on every request of the implementation that follows.
+
+It is a hook rather than a rule because a rule is re-read on every request of
+every session (~0.4 points of a window per 1,000 tokens) while this costs nothing
+until it applies. `Edit` is deliberately not matched: trimming finished items
+from a plan is routine, replacing the file is not.
 
 ## Adding a rule
 

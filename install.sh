@@ -65,6 +65,20 @@ print(json.dumps({
     ],
 }))' | python3 "$SCRIPT_DIR/hooks/write-settings-hook.py"
 
+# Registered separately from the rules hook, under its own tag, so uninstalling
+# one does not strand the other.
+PLAN_HOOK="$SCRIPT_DIR/hooks/plan-written.py"
+chmod +x "$PLAN_HOOK"
+HOOK_PATH="$PLAN_HOOK" SETTINGS_PATH="$SETTINGS" MODE="$MODE" python3 -c '
+import json, os
+hook = os.environ["HOOK_PATH"]
+print(json.dumps({
+    "settings": os.environ["SETTINGS_PATH"],
+    "tag": "hooks/plan-written.py",
+    "mode": os.environ["MODE"],
+    "entries": [{"event": "PostToolUse", "matcher": "Write", "command": "python3 " + hook}],
+}))' | python3 "$SCRIPT_DIR/hooks/write-settings-hook.py"
+
 # Situational rules ship as skills instead: the model sees only a one-line
 # description until it loads one, where a rule file costs its full length on
 # every request of every session. Symlinked rather than copied, so editing the
