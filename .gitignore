@@ -1,2 +1,3 @@
 usage/*.jsonl
 .claude/session-id
+__pycache__/
