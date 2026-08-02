@@ -302,6 +302,21 @@ def tokens_through(requests, cutoff=None):
     return total
 
 
+def tokens_per_minute(requests, since, until):
+    """Token rate over a span, or 0 when the span is too short to mean anything.
+
+    Averaging over the whole window instead answers a question nobody asked: it
+    includes agents that have since been cleared, so it keeps projecting a burn
+    rate that stopped. A span shorter than this is mostly quantisation noise from
+    however requests happened to land in it.
+    """
+    minutes = (until - since).total_seconds() / 60
+    if minutes < 3:
+        return 0
+    total = sum(sum(counts.values()) for when, counts, _ in requests.values() if since < when <= until)
+    return total / minutes if total else 0
+
+
 def main():
     events = read_events()
     if ARGS.sleep_seconds:
@@ -410,14 +425,23 @@ def main():
             f"  estimate ~{min(estimate, 100):.0f}% used, from {per_pct:,.0f} tokens/% calibrated "
             f"on the {last['pct']}% reported at {stamp(last['_t'])}"
         )
-        elapsed = (now - window_start).total_seconds() / 60
         if estimate >= 100:
             line += "; that calibration says the window is already spent — expect a refusal, and "
             line += "ask for a fresh reading before trusting it"
-        elif elapsed > 0 and spent > 0:
-            empty = now + timedelta(minutes=(100 - estimate) * per_pct / (spent / elapsed))
-            verdict = "before renewal — pace or stop early" if empty < renews else "after renewal"
-            line += f"; at the current rate credit runs out {stamp(empty)} ({verdict})"
+        else:
+            # Prefer the rate since the last reading: it reflects how many agents
+            # are running now. Fall back to the window average only when that span
+            # is too short, and say so, because it embeds bursts already over.
+            rate = tokens_per_minute(requests, last["_t"], now)
+            span = f"the {duration(now - last['_t'])} since that reading"
+            if not rate:
+                elapsed = (now - window_start).total_seconds() / 60
+                rate = spent / elapsed if elapsed > 0 else 0
+                span = "the whole window, which still counts agents that have since stopped"
+            if rate:
+                empty = now + timedelta(minutes=(100 - estimate) * per_pct / rate)
+                verdict = "before renewal — pace or stop early" if empty < renews else "after renewal"
+                line += f"; at the rate over {span}, credit runs out {stamp(empty)} ({verdict})"
         out.append(line)
     elif last:
         out.append(
