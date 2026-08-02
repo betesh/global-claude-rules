@@ -49,81 +49,21 @@ CONFIG_DIR=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 SETTINGS="$CONFIG_DIR/settings.json"
 mkdir -p "$CONFIG_DIR"
 
-HOOK_PATH="$HOOK" SETTINGS_PATH="$SETTINGS" MODE="$MODE" python3 - <<'PY'
-import json, os, shutil, sys
-
-hook = os.environ["HOOK_PATH"]
-path = os.environ["SETTINGS_PATH"]
-mode = os.environ["MODE"]
-
 # SessionStart matches on `source`; SubagentStart matches on `agent_type`, where
 # "*" means every agent type. SubagentStart only accepts context as JSON, hence
 # --json.
-EVENTS = {
-    "SessionStart": ("startup|resume|clear|compact", hook),
-    "SubagentStart": ("*", hook + " --json"),
-}
-
-if os.path.exists(path):
-    with open(path) as f:
-        text = f.read().strip()
-    try:
-        settings = json.loads(text) if text else {}
-    except json.JSONDecodeError as e:
-        sys.exit(f"install.sh: {path} is not valid JSON ({e}); fix it and re-run")
-    if not isinstance(settings, dict):
-        sys.exit(f"install.sh: {path} must contain a JSON object")
-    shutil.copyfile(path, path + ".bak")
-else:
-    settings = {}
-
-hooks = settings.setdefault("hooks", {})
-if not isinstance(hooks, dict):
-    sys.exit(f"install.sh: 'hooks' in {path} must be a JSON object")
-
-def ours(cmd):
-    """Any hook this installer wrote."""
-    return ("hooks/load-rules.sh" in cmd)
-
-
-removed = 0
-for event, (matcher, command) in EVENTS.items():
-    kept = []
-    for entry in hooks.get(event) or []:
-        inner = entry.get("hooks", []) if isinstance(entry, dict) else []
-        survivors = [h for h in inner if not ours(str(h.get("command", "")))]
-        removed += len(inner) - len(survivors)
-        if survivors:
-            kept.append({**entry, "hooks": survivors})
-        elif not inner:
-            kept.append(entry)
-
-    if mode == "install":
-        kept.append({
-            "matcher": matcher,
-            "hooks": [{"type": "command", "command": command}],
-        })
-
-    if kept:
-        hooks[event] = kept
-    else:
-        hooks.pop(event, None)
-
-if not hooks:
-    settings.pop("hooks", None)
-
-with open(path, "w") as f:
-    json.dump(settings, f, indent=2)
-    f.write("\n")
-
-if mode == "install":
-    print(f"Installed {' + '.join(EVENTS)} hooks -> {hook}")
-    if removed:
-        print(f"Replaced {removed} previously installed hook entr{'y' if removed == 1 else 'ies'}.")
-else:
-    print(f"Removed {removed} hook entr{'y' if removed == 1 else 'ies'} from {path}.")
-print(f"Settings: {path}")
-PY
+HOOK_PATH="$HOOK" SETTINGS_PATH="$SETTINGS" MODE="$MODE" python3 -c '
+import json, os
+hook = os.environ["HOOK_PATH"]
+print(json.dumps({
+    "settings": os.environ["SETTINGS_PATH"],
+    "tag": "hooks/load-rules.sh",
+    "mode": os.environ["MODE"],
+    "entries": [
+        {"event": "SessionStart", "matcher": "startup|resume|clear|compact", "command": hook},
+        {"event": "SubagentStart", "matcher": "*", "command": hook + " --json"},
+    ],
+}))' | python3 "$SCRIPT_DIR/hooks/write-settings-hook.py"
 
 if [ "$MODE" = install ]; then
 	echo "Verifying hook output..."
