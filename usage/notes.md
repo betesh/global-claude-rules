@@ -15,22 +15,29 @@ Refine these in place as observations accumulate. Provisional until an entry cit
   2026-07-31T23:34Z was taken on that basis. No refusal was ever observed, so this fixes neither
   the ceiling nor the window length — it only records that a reported percentage was the trigger.
 
-- **2026-08-02, first tokens-per-percent calibration.** Conditions: window opened 03:30Z, three
-  agents running concurrently, two of them long-lived (73 requests logged in 24 minutes). At
-  03:54Z the user reported **59% used**; the hook's scan at 03:53Z showed **14,142,892 tokens**
-  (in 135, cache-write 150,447, cache-read 13,930,775, out 61,535).
+- **2026-08-02, two reports in one window — and the from-zero ratio was badly wrong.** Window
+  opened 03:30Z. Report A: 03:54Z, **59%**, 14,142,892 tokens, three agents running. Report B:
+  04:11Z, **80%**, 28,194,877 tokens, taken just after two of the three were cleared. Traffic was
+  ~98% cache-read in both scans.
 
-  - **≈240k tokens per percent**, overwhelmingly cache-read — 98.5% of the traffic was re-sending
-    existing context, not new input or output. The ratio is fitted to that mix and should not be
-    trusted for a session doing mostly fresh generation.
-  - **Burn rate ≈2.4%/min under three concurrent agents**, i.e. the whole window consumed in
-    ~42 minutes of wall clock. Renewal was still ~4h35m away. So with several agents on large
-    contexts, **elapsed window time predicts nothing** — the limit arrives an order of magnitude
-    before renewal, and pacing decisions cannot wait for the clock.
-  - **Cost is dominated by context size, not by turn count.** 73 requests spending 14M tokens is
-    ~194k tokens per request; a turn that adds nothing to context still costs the whole
-    conversation again. This is the measured case for `/compact` and `/clear` being spend
-    decisions rather than tidiness.
+  - **Marginal cost is ≈670k tokens per percent** (Δ14.05M / Δ21pct). Dividing report A's total by
+    its own percentage gave **240k/pct** — off by 2.8×, and it over-predicted spend, so it fails
+    in the dangerous direction. **Calibrate on the delta between two reports, never on one report
+    divided by tokens-since-window-start**; the from-zero form assumes the window opened at zero
+    tokens and that every transcript the scan sees is billed to this account's window, and at
+    least one of those is false.
+  - **The error was in shape, not magnitude.** From report A alone, straight-lining
+    "59% in 24 minutes" predicted exhaustion at 04:07Z. At 04:11Z the account was at 80% and still
+    serving. An average since window start is not a marginal rate: it embeds a burst that has
+    already stopped, and it cannot see agents starting or stopping.
+  - **Measured burn: ≈1.2%/min with three agents**, roughly half the straight-lined guess. Still
+    fast enough to consume a 5h window in well under an hour, so with several agents on large
+    contexts elapsed window time remains useless as a predictor — but predict from the two-report
+    delta, and re-read after the agent count changes, because that rate is a property of how many
+    agents are running, not of the window.
+  - **Cost is dominated by context size, not turn count.** ~150k tokens per request across 185
+    requests; a turn that adds nothing to the conversation still re-sends all of it. This is the
+    measured case for `/compact` and `/clear` being spend decisions rather than tidiness.
 
 _(append findings here with the date and what was running at the time)_
 
@@ -38,8 +45,10 @@ _(append findings here with the date and what was running at the time)_
 
 - No way found yet for an agent to read remaining credit directly. Percentages therefore arrive
   only when the user reports one; between reports, the estimate is elapsed window time.
-- Only one report exists in the 2026-08-02 window, so the burn rate above is an average since the
-  window start, not a rate between two readings. A second report would show whether burn is flat
-  or accelerating as the running agents' contexts grow.
+- The 670k tokens/pct above is one delta, measured while the agent count was falling. Whether that
+  ratio is stable, or itself moves with the traffic mix, needs a third and fourth report.
+- Transcript count is not agent count: `/clear` opens a new transcript, so nine files in this
+  window came from far fewer concurrent agents. Any per-agent figure derived from file count is
+  wrong.
 - Unknown whether refusal arrives at a reported 100% or earlier. The next `limit-hit` should be
   logged with the last reported percentage beside it.
