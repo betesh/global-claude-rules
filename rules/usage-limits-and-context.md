@@ -46,6 +46,35 @@ Reduce it newest-first:
 
 Sleep with a background `sleep` command, not a scheduled cloud agent.
 
+## A declared sleep is binding
+
+Once you have said you are sleeping until a time, **do no work until that time** — no tool calls,
+no commits, no "one quick local edit". Local edits are not free: every tool call is a separate
+round trip that re-sends the whole conversation, so a handful of "cheap" calls during a dead
+window costs more than the reply that announced the sleep.
+
+If the user prompts you mid-sleep, the model has already been invoked and that request is spent —
+you cannot refuse it back. What you can still control is everything after it: **answer in one
+turn, with zero tool calls**, restate when you will resume, and stop. Do not treat a question as
+permission to resume, and do not start the queued work because you happen to be awake. Only an
+explicit instruction to continue ends the sleep early.
+
+The same applies to a request that looks trivial. "Just add one line to a file" is a tool call, a
+commit is two or three more, and the point of the sleep was that none of them can be afforded.
+
+## Sleeping without spending a request at all
+
+An agent cannot decide to sleep for free. Rules and project files are injected into context by
+the harness, but acting on them requires the model to run, which is the request you were trying
+to avoid — so a freshly started agent always costs at least one round trip before it can conclude
+that credit is out.
+
+Only code that runs **outside** the model can prevent that. A `SessionStart` hook is a shell
+script: it can read the shared log, and when the newest `limit-hit` carries a `resetAt` still in
+the future, warn loudly or block the session before any request is sent. That is the only path to
+a zero-cost wait, and it is worth having when several agents may be started by hand into a window
+that is already exhausted.
+
 ## What is not measurable, and what to record instead
 
 **An agent cannot read the account's remaining credit.** There is no tool for it, so a "95% spent,
