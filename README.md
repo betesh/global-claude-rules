@@ -134,8 +134,10 @@ free:
 It reads two local sources and prints a few lines of context:
 
 - `usage/events.jsonl` in this repo — the window start and any percentage the
-  user reported. When no window is open it appends a `first-request` itself, so
-  the window start is recorded without any agent spending a turn on it.
+  user reported. It maintains the start itself: whenever the window it works out
+  is not the one the log's newest boundary line names, it appends a `renewed`
+  carrying that start in `startedT`, so the record stays current with no agent
+  spending a turn on it and no line ever needing to be pruned.
 - the session transcripts under `$CLAUDE_CONFIG_DIR/projects` (else
   `~/.claude/projects`) — every assistant message carries a `message.usage`
   object, so summing the ones inside the window measures what **all** agents on

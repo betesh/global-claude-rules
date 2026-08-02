@@ -153,26 +153,57 @@ def newest(events, kind):
     return None
 
 
-def find_window_start(events):
-    """Earliest evidence of a served request since the last window ended.
+def logged_window_start(events):
+    """The window start asserted by the most recently written boundary line.
 
-    Returns None when no window is open. A `renewed` counts alongside a
-    `first-request`: it is logged precisely because a request succeeded, so it
-    marks a window that is already running. Without it, a session that renews
-    mid-conversation reports the window as starting whenever the hook next runs,
-    and silently drops every reading taken in between.
+    Only that one line is consulted, and it carries the start it asserts in
+    `startedT` rather than being dated by when it was written. Both halves matter,
+    because the log is append-only and can never be pruned:
+
+    - Reading the *earliest* boundary line instead pins the start to the first one
+      ever written. Once that is five hours old every session sees an expired
+      window, declares it opened one itself, and appends another line that will
+      likewise never be read — recoverable only by emptying the file by hand.
+    - Dating a line by when it was written makes a stale line from an hour into
+      some past window outrank an accurate one, since it is the later timestamp.
+      A line that says what it means is inert once superseded.
+
+    Lines written before `startedT` existed fall back to their write time, which
+    is what they meant.
     """
-    renewed = newest(events, "renewed")
-    boundary = renewed["_t"] if renewed else None
+    for event in reversed(events):  # read_events sorts by write time
+        if event.get("kind") in ("first-request", "renewed"):
+            return parse_time(event.get("startedT")) or event["_t"]
+    return None
 
-    starts = [
-        e["_t"] for e in events
-        if e.get("kind") in ("first-request", "renewed") and (boundary is None or e["_t"] >= boundary)
-    ]
-    if not starts:
+
+def find_window_start(events):
+    """When the window now open began, or None when no window is open.
+
+    Three cases, and the middle one is why this is not just a freshness check:
+
+    - the logged start is younger than a window: that window is still running.
+    - it is older: at least one window has turned over since. The one now open
+      began at the first request after the old one expired, and that timestamp is
+      in the transcripts — so roll forward through them a window at a time rather
+      than stamping the start as now. Stamping now is what makes a window look
+      short, by however long it took a session to start and notice.
+    - no boundary line at all: nothing anchors the roll-forward, because traffic
+      reaching back past wherever the scan begins gives an arbitrary phase. The
+      caller treats now as the start and says so.
+    """
+    logged = logged_window_start(events)
+    if logged is None:
         return None
-    start = min(starts)
-    return None if now - start >= WINDOW else start
+    if now - logged < WINDOW:
+        return logged
+
+    requests, _ = scan_transcripts(logged + WINDOW)
+    start, cursor = None, None
+    for when in sorted(when for when, _, _ in requests.values()):
+        if cursor is None or when >= cursor:
+            start, cursor = when, when + WINDOW
+    return start if start and now - start < WINDOW else None
 
 
 def append_event(event):
@@ -188,8 +219,15 @@ def append_event(event):
         pass
 
 
-def log_first_request():
-    append_event({"kind": "first-request", "note": "session start; logged by hook before any request"})
+def log_boundary(started, note):
+    """Record when the window now open began, so the next session reads it.
+
+    Written whenever the start was worked out from something other than the log —
+    a reported renewal, or a roll-forward through the transcripts — which is what
+    keeps the log current without anyone pruning it. The window it names is in
+    `startedT`; `t` stays the write time, and the two are rarely the same.
+    """
+    append_event({"kind": "renewed", "startedT": stamp_seconds(started), "note": note})
 
 
 def wake_at(renews):
@@ -326,13 +364,23 @@ def window_state(events):
     if renews:
         window_start = renews - WINDOW
         opened = False
+        source = "derived from a reported renewal"
     else:
         window_start = find_window_start(events)
         opened = window_start is None
         if opened:
             window_start = now
+        source = "this session's start, with nothing in the log to place it" if opened \
+            else "the first request after the previous window expired"
         renews = window_start + WINDOW
         basis = f"no renewal reported in this window; {duration(WINDOW)} after its first request"
+
+    # Worth writing down unless the log already says the same thing. The minutes
+    # of tolerance are because a start derived from a reported renewal is only as
+    # precise as the minute the user read off, and re-logging on that jitter would
+    # add a line per session for no new information.
+    known = logged_window_start(events)
+    unlogged = known is None or abs((window_start - known).total_seconds()) > 120
 
     requests, sessions = scan_transcripts(window_start)
     totals = {name: 0 for name, _ in TOKEN_FIELDS}
@@ -354,7 +402,8 @@ def window_state(events):
     estimate = intercept + spent / per_pct if per_pct else None
 
     return {
-        "window_start": window_start, "opened": opened, "requests": requests,
+        "window_start": window_start, "opened": opened, "unlogged": unlogged,
+        "source": source, "requests": requests,
         "sessions": sessions, "totals": totals, "by_model": by_model, "spent": spent,
         "reports": reports, "last": last, "per_pct": per_pct, "intercept": intercept,
         "backing": backing, "estimate": estimate, "renews": renews, "basis": basis,
@@ -455,8 +504,8 @@ def main():
 
     out = []
 
-    if state["opened"]:
-        log_first_request()
+    if state["unlogged"]:
+        log_boundary(state["window_start"], state["source"])
     window_start = state["window_start"]
     opened = " (this session opened it)" if state["opened"] else ""
     requests, sessions = state["requests"], state["sessions"]
@@ -471,7 +520,7 @@ def main():
     else:
         out.append(
             f"  renews   {stamp(renews)} — that has passed, so the window should have reset "
-            f"already ({basis}); the next request confirms it, so log a renewed event"
+            f"already ({basis}); the next session start records the new one"
         )
     if requests:
         breakdown = ", ".join(f"{name} {totals[name]:,}" for name, _ in TOKEN_FIELDS)
