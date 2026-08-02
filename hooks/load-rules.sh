@@ -53,7 +53,7 @@ EOF
 Those files are the source of truth, inside a git repository at:
 $REPO_DIR
 Edit rules there (never a copy elsewhere), and commit those edits like any other
-repo — see rules-repo-workflow.md.
+repo — see CLAUDE.md there.
 EOF
 }
 

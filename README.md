@@ -68,8 +68,6 @@ never be mistaken for a rule.
 | `stash-dont-discard.md` | Stash experimental work you might return to; never `git checkout --` it |
 | `git-c-not-cd.md` | Target other repos with `git -C DIR`, never `cd DIR && git` |
 | `collapse-passthroughs.md` | Delete no-op wrappers and rename-only aliases in the change set that creates them |
-| `global-rules-scope.md` | Keep these rules project-agnostic; repo-specific conventions go in that repo |
-| `rules-repo-workflow.md` | This repo is a repo — rule edits get committed like any other work |
 | `usage-limits-and-context.md` | Pool what agents learn about the shared credit window in `usage/`; treat context size as spend |
 
 ## Adding a rule
