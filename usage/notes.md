@@ -61,37 +61,39 @@ denominator that transfers.
 cached part is billed at the cache-read rate. So `total cache-read ≈ requests × average context`,
 which held to within a percent across two concurrent sessions.
 
-The question is what makes up that context. Charging every block to the requests that came after
-it — its size times how many later requests re-read it — gives the only decomposition that matters:
+The question is what makes up that context, and the dominant term is **whatever was already in the
+session when the window opened**. A session that has been running for hours carries its entire
+history across the boundary and pays for all of it on every request of the new window:
 
-| what put it in context | share of cache-read |
-|---|---:|
-| **fixed prefix, re-read on every request** | **79.1%** |
-| tool calls | 9.1% |
-| tool results | 8.5% |
-| assistant replies | 3.1% |
-| user prompts | 0.2% |
+| session | context at window open | that carried cost | share of its cache-read |
+|---|---:|---:|---:|
+| A | 168,180 | 16,986,180 | **74.0%** |
+| B | 56,769 | 6,414,897 | **38.8%** |
 
-**Four fifths of all spend is the prefix**: the system prompt, the tool definitions, and whatever
-is injected at session start. It is re-read on every request of every session and nothing that
-happens during a conversation reduces it. Measured at ~76k tokens per request across 287 requests.
+**Carried-in context was 59% of all cache-read.** Clearing both sessions as the window opened would
+have avoided ~23.4M tokens — about **35 points**. Nothing else measured comes close.
 
-Three things follow, and two of them contradict the obvious guesses:
+Of what is added *during* a window, the split is: tool calls ~9%, tool results ~8%, assistant
+replies ~3%, user prompts ~0.2%. So:
 
+- **Session lifetime is the lever, by a wide margin.** The cost of a long-lived session is not the
+  work it does but the history it re-reads, and that history is charged again in full by every new
+  window it survives into. Clear at a window boundary, and clear before starting unrelated work.
+- **`/clear` is powerful but its benefit is timing-dependent**, which is why clearing everything at
+  an arbitrary moment can look like it did nothing: the saving is proportional to how much context
+  is dropped *and* how many requests follow. Clearing a 168k-token session that then runs a hundred
+  more requests saves millions of tokens; clearing a small session, or clearing then immediately
+  rebuilding, saves almost nothing.
 - **Trimming large tool outputs is not worth doing.** The largest single tool result observed all
-  window was 2,606 tokens. Capping every result at 2,000 would have saved 51,510 tokens — under
-  **0.1%** of a window. There is no fat there to cut.
-- **`/clear` has a hard ceiling of about 21%.** It drops the conversation but not the prefix, which
-  is re-established for the next session and re-read just as often. That is why clearing every
-  agent produces a disappointing result: four fifths of the cost was never in the conversation.
-- **The prefix is the only lever with real leverage, and most of it is not ours.** The system
-  prompt and tool definitions cannot be edited from here. What can be is whatever the session
-  start injects — and that portion is paid by every agent simultaneously.
+  window was 2,606 tokens; capping every result at 2,000 saves under **0.1%** of a window.
 
-**The rules in this repo are 10,778 tokens**, read in full at every session start. Across 287
-requests that is 3.1M tokens, **11% of all cache-read, about 4.6 points of a window**. Adding to
-them is not free and is not small: a 400-token rule costs roughly 0.17 points per window at this
-traffic, which is more than capping every oversized tool result would save.
+Beware measuring this by "what was added during the window" — blocks added *before* it are invisible
+to that method and get silently attributed to fixed overhead. An earlier pass here concluded the
+system prefix was 79% of spend for exactly that reason, and it was wrong.
+
+**The rules in this repo** are re-read on every request of every session, so they cost roughly
+**0.4 points of a window per 1,000 tokens** at two concurrent sessions, and more with more agents.
+Real, and worth trimming, but an order of magnitude below session lifetime.
 
 ## What we still do not know
 

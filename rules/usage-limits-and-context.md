@@ -47,13 +47,15 @@ under 100, or a request that plainly succeeded. Waiting out an open window is in
 
 Every request re-sends the whole context, so its size is charged on **every** turn.
 
-Measured: **~79% of all spend is the fixed prefix** — system prompt, tool definitions, and whatever
-session start injects — re-read on every request. Only ~21% is the conversation. Two consequences:
+Measured: **the biggest single cost is context a long-lived session carries across a window
+boundary** — 59% of all spend in one window, because everything already in context is re-read by
+every request that follows. Two consequences:
 
-- **`/clear` can save at most about a fifth.** It drops the conversation, not the prefix. Recommend
-  it when the next task does not depend on this one — but first make the record durable: the plan
-  file reflects what is left, and anything learned about the repo is written into the repo.
-  Recommend `/compact` instead when the work must continue here and context is past roughly 70%.
+- **Recommend `/clear` when the next task does not depend on this conversation**, and say so
+  plainly rather than waiting to be asked — most of all when a session has been running a long
+  time. First make the record durable: the plan file reflects what is left, and anything learned
+  about the repo is written into the repo. Recommend `/compact` instead when the work must
+  continue here and context is past roughly 70%.
 - **Trimming large tool outputs is not worth doing.** Measured at under 0.1% of a window. Do not
   contort a command to shrink its output.
 
