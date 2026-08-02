@@ -137,10 +137,39 @@ def newest(events, kind):
     return None
 
 
+def credit_returned_after(events, when):
+    """True when something logged after `when` shows requests are being served again.
+
+    A limit-hit or a declared sleep names a deadline to wait until, but credit
+    can come back before it — a window may renew earlier than the wait a refusal
+    reported. A later `renewed`, or a reported percentage below 100, is direct
+    evidence the account is serving. Without this check one stale entry keeps
+    every agent idle until its own deadline passes, which is the expensive
+    direction to be wrong in: the window is open and nobody is using it.
+    """
+    for event in reversed(events):
+        if event["_t"] <= when:
+            return False
+        if event.get("kind") == "renewed":
+            return True
+        pct = event.get("pct")
+        if event.get("kind") == "usage-report" and isinstance(pct, (int, float)) and pct < 100:
+            return True
+    return False
+
+
+def standing_limit_hit(events):
+    """The newest limit-hit, unless something later showed credit came back."""
+    hit = newest(events, "limit-hit")
+    if hit and credit_returned_after(events, hit["_t"]):
+        return None
+    return hit
+
+
 def find_window_start(events):
     """Earliest first-request since the last window ended, or None if none is open."""
     boundary = None
-    limit_hit = newest(events, "limit-hit")
+    limit_hit = standing_limit_hit(events)
     renewed = newest(events, "renewed")
     for candidate in (limit_hit and parse_time(limit_hit.get("resetAt")), renewed and renewed["_t"]):
         if candidate and (boundary is None or candidate > boundary):
@@ -183,14 +212,14 @@ def pending_wait(events):
     window that is actually serving costs more than one refusal would.
     """
     waits = []
-    limit_hit = newest(events, "limit-hit")
+    limit_hit = standing_limit_hit(events)
     if limit_hit:
         reset_at = parse_time(limit_hit.get("resetAt"))
         if reset_at and reset_at > now:
             waits.append((reset_at, f"limit-hit at {stamp(limit_hit['_t'])} puts renewal at {stamp(reset_at)}"))
 
     declared = newest(events, "sleep")
-    if declared:
+    if declared and not credit_returned_after(events, declared["_t"]):
         until = parse_time(declared.get("untilT"))
         if until and until > now:
             who = declared.get("session") or "an untagged session"
@@ -274,7 +303,7 @@ def main():
 
     out = []
 
-    limit_hit = newest(events, "limit-hit")
+    limit_hit = standing_limit_hit(events)
     reset_at = parse_time(limit_hit.get("resetAt")) if limit_hit else None
     if reset_at and reset_at > now:
         print(
