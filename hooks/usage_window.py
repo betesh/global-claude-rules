@@ -167,7 +167,14 @@ def standing_limit_hit(events):
 
 
 def find_window_start(events):
-    """Earliest first-request since the last window ended, or None if none is open."""
+    """Earliest evidence of a served request since the last window ended.
+
+    Returns None when no window is open. A `renewed` counts alongside a
+    `first-request`: it is logged precisely because a request succeeded, so it
+    marks a window that is already running. Without it, a session that renews
+    mid-conversation reports the window as starting whenever the hook next runs,
+    and silently drops every reading taken in between.
+    """
     boundary = None
     limit_hit = standing_limit_hit(events)
     renewed = newest(events, "renewed")
@@ -177,7 +184,7 @@ def find_window_start(events):
 
     starts = [
         e["_t"] for e in events
-        if e.get("kind") == "first-request" and (boundary is None or e["_t"] >= boundary)
+        if e.get("kind") in ("first-request", "renewed") and (boundary is None or e["_t"] >= boundary)
     ]
     if not starts:
         return None
@@ -357,8 +364,11 @@ def main():
             f"already ({basis}); the next request confirms it, so log a renewed event"
         )
     if report:
+        # The start is only known as well as the first event logged in the window,
+        # which can trail the real first request by several minutes. Disagree out
+        # loud only when the gap is larger than that slack.
         observed = renews - window_start
-        if abs(observed - WINDOW) > timedelta(minutes=5):
+        if abs(observed - WINDOW) > timedelta(minutes=15):
             out.append(
                 f"  note     that makes this window {duration(observed)}, not the assumed "
                 f"{duration(WINDOW)} — correct usage/notes.md"
