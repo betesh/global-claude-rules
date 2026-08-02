@@ -1,3 +1,8 @@
+---
+name: repo-plans
+description: Rules for living implementation plans in docs/plans/. Load this BEFORE writing a plan file, immediately after the user approves a plan in ExitPlanMode, before committing work that advances a plan, when trimming or finishing a plan, or when adding to DEFERRED.md. Triggers on "write a plan", "implement the plan", "the plan file", "docs/plans", "next phase", "deferred backlog".
+---
+
 # Living plans in docs/plans
 
 _The plan file lives in the owning repo, shrinks to remaining work every commit, and is deleted
@@ -63,5 +68,5 @@ in an active plan, policy already covered by a standing rule, and all history or
 ("from plan X", "moved from Phase A") — git history is enough. If you would not open a plan whose
 next item is that bullet, it does not belong there. Do not create an empty `DEFERRED.md`.
 
-Nothing outside a plan may cite it — see `no-plan-refs-in-code.md`. Do not restate any of this
-housekeeping inside a plan document.
+Nothing outside a plan may cite it — no phase numbers or plan paths in code, docs, or test names.
+Do not restate any of this housekeeping inside a plan document.

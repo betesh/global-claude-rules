@@ -63,11 +63,8 @@ never be mistaken for a rule.
 | File | Rule |
 |------|------|
 | `auto-commit.md` | Commit each completed task immediately, without being asked; only your own changes |
-| `repo-plans.md` | Plans live in the owning repo's `docs/plans/`, shrink every commit, and are deleted when done |
 | `run-focused-tests.md` | Iterate on one test file; run the full suite once before committing |
-| `stash-dont-discard.md` | Stash experimental work you might return to; never `git checkout --` it |
 | `git-c-not-cd.md` | Target other repos with `git -C DIR`, never `cd DIR && git` |
-| `collapse-passthroughs.md` | Delete no-op wrappers and rename-only aliases in the change set that creates them |
 | `usage-limits-and-context.md` | Pool what agents learn about the shared credit window in `usage/`; treat context size as spend |
 
 ## Adding a rule
@@ -152,3 +149,14 @@ after old lines are rejected on the raw text rather than parsed.
 - **Project settings can't override this.** The hooks are installed in user
   settings and fire everywhere. A project that needs different behavior should
   say so in its own `CLAUDE.md`.
+
+## Skills
+
+Situational rules load on demand instead of sitting in every session's
+context. `install.sh` symlinks them into the Claude skills directory.
+
+| skill | what it covers |
+|---|---|
+| `repo-plans` | Plans live in the owning repo's `docs/plans/`, shrink every commit, and are deleted when done |
+| `stash-dont-discard` | Stash experimental work you might return to; never `git checkout --` it |
+| `collapse-passthroughs` | Delete no-op wrappers and rename-only aliases in the change set that creates them |

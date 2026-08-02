@@ -29,7 +29,7 @@ untracked debug dumps, secrets, or work the user said not to commit.
 For N requested fixes, a numbered list, or a plan with phases: complete one item, run the relevant
 check for that slice (`run-focused-tests.md`), commit it, then start the next. Never batch several
 finished items into one commit. For plans, the same commit deletes the finished items from the plan
-file (`repo-plans.md`).
+file — load the `repo-plans` skill.
 
 If you discover an **unrelated** bug while working on something else, commit it separately with its
 own message — first if it blocks you, otherwise after. Do not land both in one diff.

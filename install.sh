@@ -65,6 +65,34 @@ print(json.dumps({
     ],
 }))' | python3 "$SCRIPT_DIR/hooks/write-settings-hook.py"
 
+# Situational rules ship as skills instead: the model sees only a one-line
+# description until it loads one, where a rule file costs its full length on
+# every request of every session. Symlinked rather than copied, so editing the
+# checkout takes effect without reinstalling.
+SKILLS_SRC="$SCRIPT_DIR/skills"
+SKILLS_DST="$CONFIG_DIR/skills"
+if [ -d "$SKILLS_SRC" ]; then
+	for skill in "$SKILLS_SRC"/*/; do
+		[ -d "$skill" ] || continue
+		name=$(basename "$skill")
+		link="$SKILLS_DST/$name"
+		# Only ever remove a link we own; a real directory there is someone else's.
+		if [ -L "$link" ]; then
+			rm -f "$link"
+		elif [ -e "$link" ]; then
+			echo "install.sh: $link exists and is not a symlink; leaving it alone" >&2
+			continue
+		fi
+		if [ "$MODE" = install ]; then
+			mkdir -p "$SKILLS_DST"
+			ln -s "${skill%/}" "$link"
+			echo "Linked skill: $name"
+		else
+			echo "Removed skill: $name"
+		fi
+	done
+fi
+
 if [ "$MODE" = install ]; then
 	echo "Verifying hook output..."
 	"$HOOK" >/dev/null

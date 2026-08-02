@@ -2,7 +2,7 @@
 
 _Comments, docs, names, and tests must not reference a plan, a phase, or a checklist item — those are deleted when the work lands._
 
-A plan describes work that is not finished. It shrinks with every commit and is deleted when the last item lands (`repo-plans.md`), so anything pointing at it — "what Phase 2 adds", "the gate from step 3", "see `docs/plans/foo.md`" — is a dangling pointer by the time a reader arrives, and they cannot recover what it meant.
+A plan describes work that is not finished. It shrinks with every commit and is deleted when the last item lands, so anything pointing at it — "what Phase 2 adds", "the gate from step 3", "see `docs/plans/foo.md`" — is a dangling pointer by the time a reader arrives, and they cannot recover what it meant.
 
 ## Instead, state the thing itself
 
