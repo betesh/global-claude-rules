@@ -13,13 +13,22 @@ to write it down.
 
 ## The shared log
 
-`~/.claude/usage/events.jsonl` — append-only, one JSON object per line, newest last. Create the
-directory if missing. **Append; never rewrite.** Concurrent appends of a single short line survive
-each other; a read-modify-write loses whatever another agent wrote in between.
+Both files live in the **rules repository** — its absolute path is in the SessionStart context that
+loaded these rules; read that path, never hard-code one (`rules-repo-workflow.md`). Keeping them in
+a repo means every change shows up in `git status` and `git log` like any other work.
+
+- `<rules-repo>/usage/events.jsonl` — raw observations. **Gitignored**: machine-local, noisy, and
+  appended by concurrent agents.
+- `<rules-repo>/usage/notes.md` — what those observations taught you. **Committed**, so a
+  conclusion outlives the machine that measured it.
+
+The log is append-only, one JSON object per line, newest last. Create the directory if missing.
+**Append; never rewrite.** Concurrent appends of a single short line survive each other; a
+read-modify-write loses whatever another agent wrote in between.
 
 ```bash
 printf '%s\n' '{"t":"2026-07-31T15:04:05Z","kind":"limit-hit","resetAt":"2026-07-31T15:55:00Z"}' \
-  >> ~/.claude/usage/events.jsonl
+  >> <rules-repo>/usage/events.jsonl
 ```
 
 Kinds worth logging, all with a `t` timestamp in UTC:
@@ -31,6 +40,7 @@ Kinds worth logging, all with a `t` timestamp in UTC:
 | `sleep` | `untilT`, `reason` | before you sleep, so another agent does not duplicate the wait |
 | `renewed` | — | a request succeeds after a `limit-hit` |
 | `context` | `pct`, `tokens`, `limit` | whenever a `/context` reading is in front of you |
+| `usage-report` | `pct`, `renewsInMin`, plus what was running | the user tells you how much credit is spent and when it renews |
 
 ## Before a long unattended run, read the log
 
@@ -38,6 +48,8 @@ Reduce it newest-first:
 
 - A `limit-hit` whose `resetAt` is still in the future means credit is out **now**. Sleep until
   then rather than discovering it again — another agent already paid for that information.
+- Otherwise a `usage-report` newer than the last `renewed` wins: it states the renewal directly,
+  so use it instead of reconstructing one.
 - Otherwise take the earliest `first-request` after the last `renewed`. That is the window start;
   the predicted renewal is one window length later.
 - A `sleep` event covering the same period means someone is already waiting. Waking a few seconds
@@ -75,17 +87,43 @@ the future, warn loudly or block the session before any request is sent. That is
 a zero-cost wait, and it is worth having when several agents may be started by hand into a window
 that is already exhausted.
 
-## What is not measurable, and what to record instead
+## Refine the estimate from a reported reading
 
-**An agent cannot read the account's remaining credit.** There is no tool for it, so a "95% spent,
-sleep now" trigger cannot be computed directly today, and inventing one produces false precision.
-What can be accumulated is empirical: how long a window actually lasted, how many agents were
-running, and roughly how much traffic they moved. Log `limit-hit` faithfully and the picture
-sharpens on its own.
+**An agent cannot read the account's remaining credit** — there is no tool for it. A user saying
+"X% used, renews in Y minutes" is therefore the only direct reading available, and it beats every
+inference drawn from the window start. Log it as `usage-report` and get four things out of it:
 
-Keep the running conclusions in `~/.claude/usage/notes.md` — window length when it disagrees with
-the assumption, how early limits arrive under N concurrent agents, anything about renewal that
-surprised you. Refine what is there rather than appending a second opinion beside it.
+- **Renewal becomes known rather than derived.** `t + Y minutes` is the window end. Anything the
+  window-start reconstruction says is a fallback for when no report exists.
+- **Window length falls out of the pair.** Reported end minus observed start. When that disagrees
+  with what the notes assume, the notes are what is wrong — correct them.
+- **Two reports give a burn rate.** Δpct over the minutes between them, extrapolated to 100%, is a
+  projected exhaustion time. Compare it with the renewal time: if exhaustion lands first, the
+  remaining work has to be paced, narrowed, or slept through — decide then, not at the refusal.
+- **Divided by what happened, it gives a cost.** Δpct over the turns between two reports is a cost
+  per turn, and `(100 − pct)` over that is roughly how many turns remain. This only transfers to a
+  later situation if you record the conditions with it (`measure-before-recording.md`): how many
+  agents were running, how big the contexts were, whether the traffic was long tool outputs or
+  short replies. A rate measured with one agent on a small context does not describe four agents
+  near a context limit.
+
+Two supporting habits make those numbers sharper:
+
+- **Log `context` readings next to reports.** Cost per turn scales with context size, so a rate
+  is only interpretable joined to one. This is the same reason context management belongs to this
+  rule and not a separate one.
+- **A `limit-hit` pins the ceiling.** Record the last reported pct alongside it. Whether refusal
+  arrives at a reported 100% or noticeably earlier is a fact only a hit can establish.
+
+**Ask for a reading when one would change what you do** — before a long unattended run, before
+deciding to sleep, before starting something that cannot be resumed halfway. It costs the user one
+line and is cheaper than being wrong about the window. Do not ask on a cadence; a reading you
+would not act on is spend.
+
+Keep the running conclusions in `<rules-repo>/usage/notes.md` — window length when it disagrees
+with the assumption, how early limits arrive under N concurrent agents, measured cost per turn and
+the conditions it was measured under, anything about renewal that surprised you. Refine what is
+there rather than appending a second opinion beside it, and commit it (`rules-repo-workflow.md`).
 
 ## Context size is spend
 

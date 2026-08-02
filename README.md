@@ -48,6 +48,8 @@ Requires `python3` (used only to edit the JSON settings file safely).
 | `rules/*.md` | **Yes** — every file, every session | The rules themselves |
 | `hooks/load-rules.sh` | No | Emits the rule paths as session context |
 | `install.sh` | No | Registers the hook in your Claude Code settings |
+| `usage/notes.md` | No | Committed conclusions about the credit window |
+| `usage/events.jsonl` | No | Raw usage observations, appended by agents — gitignored |
 | `README.md` | No | This file |
 
 Rules live in `rules/` specifically so that adding docs at the repo root can
@@ -65,6 +67,7 @@ never be mistaken for a rule.
 | `collapse-passthroughs.md` | Delete no-op wrappers and rename-only aliases in the change set that creates them |
 | `global-rules-scope.md` | Keep these rules project-agnostic; repo-specific conventions go in that repo |
 | `rules-repo-workflow.md` | This repo is a repo — rule edits get committed like any other work |
+| `usage-limits-and-context.md` | Pool what agents learn about the shared credit window in `usage/`; treat context size as spend |
 
 ## Adding a rule
 
