@@ -31,15 +31,16 @@ Tokens come from the transcripts, and the two are joined by fitting a line:
 pct = intercept + tokens / per_pct
 ```
 
-- Current fit across four readings in one window: **677,216 tokens per percent**, intercept
-  **7.1%**, worst residual **±2.1 percentage points**.
-- **The ratio is not constant, and this is the main open problem.** Consecutive deltas in a single
-  window measured 558,019, then 560,512, then **760,437** tokens per point. The first two agreeing
-  to 0.4% was luck, not precision: three readings against two parameters leaves one degree of
-  freedom, so residuals of ±0.01 meant nothing, and the fourth reading moved the slope 21%.
-  Treat any fitted ratio as good to roughly ±2 points, not better.
-- The 36% jump is **unexplained**. It is not the model — every interval was 100% Opus. It is not
-  the component mix — every interval was ~99% cache-read. Candidates still open: the reported
+- Current fit across five readings in one window: **667,881 tokens per percent**, intercept
+  **7.0%**, worst residual **±2.0 percentage points**.
+- **Individual deltas are noisy; the fit is not.** Consecutive deltas measured 558,019, 560,512,
+  **760,437**, then 603,400 tokens per point — a spread of 36%. But the fit through all of them is
+  converging: the fourth reading moved the slope 21%, the fifth moved it 1.4%. Predictions track
+  the same way, from 7 points out at the fourth reading to 1 point out at the fifth.
+- So **trust the fit, not any single delta**, and treat it as good to roughly ±2 points. That is
+  enough to gate near a ceiling and not enough to pace fine work by.
+- The spread is **unexplained**. It is not the model — every interval was 100% Opus. It is not the
+  component mix — every interval was ~99% cache-read. Candidates still open: the reported
   percentages are coarse, or some spend is invisible to a transcript scan.
 - **The intercept is not noise.** It is spend the scan cannot see: traffic before the window start,
   or transcripts outside the config dir. Forcing the line through the origin pushes that offset
