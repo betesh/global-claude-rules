@@ -18,11 +18,19 @@ CLAUDE_USAGE_WINDOW_MINUTES.
 Reads the hook's JSON payload on stdin for `session_id`: several agents append to
 one log, so every line it writes is tagged with the session that wrote it, and it
 tells the model that id so its own appends carry the same tag.
+
+With `--sleep-seconds` it prints a number instead: how long a launcher should
+wait before starting an agent at all, given what the log already says about the
+window. That answer is for code, not for the model — deciding to wait costs a
+request once a session is running, and by then the wait is what you were trying
+to avoid.
 """
 
+import argparse
 import glob
 import json
 import os
+import random
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -56,7 +64,20 @@ def hook_session_id():
     return session_id if isinstance(session_id, str) and session_id else None
 
 
-SESSION_ID = hook_session_id()
+def parse_args():
+    parser = argparse.ArgumentParser(description="Summarize the shared credit window.")
+    parser.add_argument(
+        "--sleep-seconds",
+        action="store_true",
+        help="print how many seconds to wait before starting an agent, and nothing else",
+    )
+    parser.add_argument("--session", help="session id to tag anything this run appends to the log")
+    return parser.parse_args()
+
+
+ARGS = parse_args()
+# stdin is the hook payload only when the harness invoked us; a launcher passes --session.
+SESSION_ID = ARGS.session or (None if ARGS.sleep_seconds else hook_session_id())
 
 
 def parse_time(value):
@@ -71,6 +92,11 @@ def parse_time(value):
 
 def stamp(when):
     return when.strftime("%Y-%m-%dT%H:%MZ")
+
+
+def stamp_seconds(when):
+    """Full precision, for times another agent will compute a wait from."""
+    return when.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def duration(delta):
@@ -130,21 +156,64 @@ def find_window_start(events):
     return None if now - start >= WINDOW else start
 
 
-def log_first_request():
-    event = {
-        "t": stamp(now).replace("Z", ":00Z"),
-        "kind": "first-request",
-        "note": "session start; logged by hook before any request",
-    }
+def append_event(event):
+    """Add one line to the shared log. Append only: concurrent writers share it."""
+    event = {"t": stamp_seconds(now), **event}
     if SESSION_ID:
         event["session"] = SESSION_ID
-    line = json.dumps(event)
     try:
         os.makedirs(os.path.dirname(EVENTS_PATH), exist_ok=True)
         with open(EVENTS_PATH, "a") as f:
-            f.write(line + "\n")
+            f.write(json.dumps(event) + "\n")
     except OSError:
         pass
+
+
+def log_first_request():
+    append_event({"kind": "first-request", "note": "session start; logged by hook before any request"})
+
+
+def pending_wait(events):
+    """The time to wait until before starting an agent, or None to start now.
+
+    Only events where someone already established that credit is gone count: a
+    limit-hit whose reset has not passed, and a sleep another agent declared and
+    is still serving. A percentage estimate is deliberately not grounds to wait
+    — the calibration behind it has been wrong by multiples, and waiting out a
+    window that is actually serving costs more than one refusal would.
+    """
+    waits = []
+    limit_hit = newest(events, "limit-hit")
+    if limit_hit:
+        reset_at = parse_time(limit_hit.get("resetAt"))
+        if reset_at and reset_at > now:
+            waits.append((reset_at, f"limit-hit at {stamp(limit_hit['_t'])} puts renewal at {stamp(reset_at)}"))
+
+    declared = newest(events, "sleep")
+    if declared:
+        until = parse_time(declared.get("untilT"))
+        if until and until > now:
+            who = declared.get("session") or "an untagged session"
+            waits.append((until, f"{who} is already waiting until {stamp(until)}"))
+
+    return max(waits, default=None)
+
+
+def report_sleep(events):
+    """Print seconds for a launcher to sleep; the reason goes to stderr."""
+    wait = pending_wait(events)
+    if wait is None:
+        print(0)
+        return
+    until, reason = wait
+    # A few tens of seconds of jitter so agents released by the same renewal do
+    # not all race for the first request.
+    until += timedelta(seconds=random.randint(0, 60))
+    print(max(0, round((until - now).total_seconds())))
+    append_event(
+        {"kind": "sleep", "untilT": stamp_seconds(until), "reason": f"{reason}; waiting before launch"}
+    )
+    print(f"credit is out: {reason}; waiting until {stamp(until)}", file=sys.stderr)
 
 
 def scan_transcripts(since):
@@ -199,6 +268,10 @@ def tokens_through(requests, cutoff=None):
 
 def main():
     events = read_events()
+    if ARGS.sleep_seconds:
+        report_sleep(events)
+        return
+
     out = []
 
     limit_hit = newest(events, "limit-hit")

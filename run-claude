@@ -1,0 +1,42 @@
+#! /bin/bash
+# Resume this project's Claude session, waiting first if the shared credit
+# window says the account is already out.
+#
+# Copy it into any project unchanged: the session to resume is read from
+# .claude/session-id in the directory it runs from, and the rules repo holding
+# the shared usage log is named by absolute path.
+#
+# The wait happens here, before `claude` starts, because that is the only place
+# it is free — once a session is running, deciding to wait costs the request the
+# wait was meant to save.
+
+set -euo pipefail
+
+RULES_REPO=$HOME/github/global-claude-rules
+SESSION_FILE=.claude/session-id
+
+if [ ! -r "$SESSION_FILE" ]; then
+  echo "run-claude: $SESSION_FILE is missing; put the session id to resume in it" >&2
+  exit 1
+fi
+
+session_id=$(tr -d '[:space:]' < "$SESSION_FILE")
+if [ -z "$session_id" ]; then
+  echo "run-claude: $SESSION_FILE is empty" >&2
+  exit 1
+fi
+
+# Prints seconds to wait, and logs the wait so another agent does not duplicate
+# it. Anything unexpected out of it means start now rather than stall.
+wait_seconds=$(REPO_DIR="$RULES_REPO" python3 "$RULES_REPO/hooks/usage_window.py" \
+  --sleep-seconds --session "$session_id" || echo 0)
+case $wait_seconds in
+  '' | *[!0-9]*) wait_seconds=0 ;;
+esac
+
+if [ "$wait_seconds" -gt 0 ]; then
+  echo "run-claude: sleeping ${wait_seconds}s before resuming $session_id" >&2
+  sleep "$wait_seconds"
+fi
+
+claude --resume "$session_id" "Continue"
