@@ -14,10 +14,6 @@ carries the conditions it was measured under — a number without them does not 
   start from that lag instead made one window look 19 minutes short.
 - Independent readings hours apart agree on the same absolute renewal time to within a couple of
   minutes, which is display rounding.
-- A reported "resets in Y" is an **upper bound, not a floor**. A window has renewed nine minutes
-  after a reading said 100% used with 3h22m to go. So any later evidence of service — a percentage
-  under 100, a request that plainly succeeded — cancels a wait, and waiting one out without
-  re-checking wastes an open window. That waste is invisible: nobody notices the agents that idled.
 - Deriving the window start from when a `renewed` event was *logged* rather than when renewal
   happened makes the window look short. The log trails the event by however long it took someone to
   notice.
@@ -95,11 +91,10 @@ system prefix was 79% of spend for exactly that reason, and it was wrong.
 **0.4 points of a window per 1,000 tokens** at two concurrent sessions, and more with more agents.
 Real, and worth trimming, but an order of magnitude below session lifetime.
 
+**Refusals arrive at a reported 100%.**
+
 ## What we still do not know
 
-- **Whether refusal arrives at a reported 100% or earlier.** No request has ever been observed to
-  be actually refused — every "limit hit" so far came from a user-reported percentage. Until one
-  is, the ceiling is unpinned. Log the last reported percentage beside the next real refusal.
 - **What the non-cache-read components cost.** At 98% cache-read, every reading has the same mix,
   so the per-component weights cannot be separated. Readings taken under a genuinely different mix
   — heavy fresh generation, little re-reading — would settle it.
