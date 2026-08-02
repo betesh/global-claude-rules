@@ -81,11 +81,12 @@ the harness, but acting on them requires the model to run, which is the request 
 to avoid — so a freshly started agent always costs at least one round trip before it can conclude
 that credit is out.
 
-Only code that runs **outside** the model can prevent that. A `SessionStart` hook is a shell
-script: it can read the shared log, and when the newest `limit-hit` carries a `resetAt` still in
-the future, warn loudly or block the session before any request is sent. That is the only path to
-a zero-cost wait, and it is worth having when several agents may be started by hand into a window
-that is already exhausted.
+Only code that runs **outside** the model can prevent that, which is what the rules repo's
+`SessionStart` usage hook is for: it reads the shared log before any request is sent, and when the
+newest `limit-hit` carries a `resetAt` still in the future it says so at the top of your context.
+Seeing that, do not start the work — answer in one turn and stop. If the block is absent, the hook
+is not installed on this machine (`install-usage-hook.sh`), and nothing is watching the window for
+you.
 
 ## Refine the estimate from a reported reading
 
@@ -135,8 +136,10 @@ predicts exhaustion by itself until a later report corrects the ratio. Track the
 separately rather than summing them raw — cache reads, fresh input, and output are not priced
 alike, so a ratio fitted to one traffic mix will mispredict another.
 
-Have code outside the model do the scanning — the same `SessionStart` hook that reads the log is
-the right place. A scan the model performs costs the request it was trying to save.
+Code outside the model does the scanning: a `SessionStart` hook in the rules repo already reports
+the window state, the tokens spent in it, and a calibrated percentage when a report exists. Read
+that block instead of recomputing it — a scan the model performs costs the request it was trying
+to save.
 
 Keep the running conclusions in `<rules-repo>/usage/notes.md` — window length when it disagrees
 with the assumption, how early limits arrive under N concurrent agents, measured cost per turn and

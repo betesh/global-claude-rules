@@ -47,7 +47,10 @@ Requires `python3` (used only to edit the JSON settings file safely).
 |------|----------------------|------------|
 | `rules/*.md` | **Yes** — every file, every session | The rules themselves |
 | `hooks/load-rules.sh` | No | Emits the rule paths as session context |
-| `install.sh` | No | Registers the hook in your Claude Code settings |
+| `hooks/usage-window.sh` + `usage_window.py` | No | Emits the credit-window state as session context |
+| `hooks/write-settings-hook.py` | No | Edits settings.json for both installers |
+| `install.sh` | No | Registers the rules hooks in your Claude Code settings |
+| `install-usage-hook.sh` | No | Registers the usage-window hook |
 | `usage/notes.md` | No | Committed conclusions about the credit window |
 | `usage/events.jsonl` | No | Raw usage observations, appended by agents — gitignored |
 | `README.md` | No | This file |
@@ -104,6 +107,44 @@ To load the rules for only some agent types, change the `SubagentStart` matcher
 from `*` to an alternation of agent names, e.g. `general-purpose|Plan`. Read-only
 agents like `Explore` arguably don't need them, at the cost of one more thing to
 keep in sync.
+
+## The usage-window hook
+
+`usage-limits-and-context.md` asks agents to predict when shared credit runs
+out. `install-usage-hook.sh` installs a second `SessionStart` hook that answers
+that question **before the model runs**, which is the only moment the answer is
+free:
+
+```sh
+./install-usage-hook.sh              # install / update
+./install-usage-hook.sh --uninstall  # remove, leaving the rules hooks alone
+```
+
+It reads two local sources and prints a few lines of context:
+
+- `usage/events.jsonl` in this repo — the window start, any `limit-hit` whose
+  reset has not passed, any percentage the user reported. When no window is
+  open it appends a `first-request` itself, so the window start is recorded
+  without any agent spending a turn on it.
+- the session transcripts under `$CLAUDE_CONFIG_DIR/projects` (else
+  `~/.claude/projects`) — every assistant message carries a `message.usage`
+  object, so summing the ones inside the window measures what **all** agents on
+  this machine have actually sent. One request writes many streaming lines
+  sharing a `requestId`, each with running totals, so the last line per
+  `requestId` is that request's cost.
+
+Tokens are not percent. The hook prints tokens always, and a percentage estimate
+only once a `usage-report` event exists to calibrate against — two of them give a
+better ratio than one. When credit is already out, it says so loudly instead.
+
+The window length it assumes is **5 hours**, unconfirmed by measurement here;
+override with `CLAUDE_USAGE_WINDOW_MINUTES`, and a `usage-report` that disagrees
+makes it say so. It matches `startup|clear` only — `resume` and `compact`
+continue a session that already saw this. Any error exits silently: a session
+never fails to start because of it.
+
+Measured on this machine at install time: **0.22 s** over 85 MB of transcripts,
+after old lines are rejected on the raw text rather than parsed.
 
 ## Caveats
 
