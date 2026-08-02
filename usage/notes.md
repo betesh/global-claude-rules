@@ -4,7 +4,9 @@ Refine these in place as observations accumulate. Provisional until an entry cit
 
 ## Assumed, user-reported, not yet confirmed by logged observation
 
-- The window is **5 hours**, rolling.
+- The window is **5 hours**, rolling. Supported once: a 13:40Z reading of "resets in 4h53m" puts
+  the end at 18:33Z against a window that opened near 13:31Z — 5h02m. One coincidence is not a
+  confirmation, but nothing so far contradicts it.
 - It starts at the **first request after the previous window ended**. With several agents running,
   whichever sent that first request started the clock for all of them.
 - Renewal is therefore predictable from the window start alone, without knowing spend.
@@ -38,6 +40,25 @@ Refine these in place as observations accumulate. Provisional until an entry cit
   - **Cost is dominated by context size, not turn count.** ~150k tokens per request across 185
     requests; a turn that adds nothing to the conversation still re-sends all of it. This is the
     measured case for `/compact` and `/clear` being spend decisions rather than tidiness.
+
+- **2026-08-02, a window renewed hours before the reported reset.** At 13:31Z a reading said
+  **100% used, resets in 3h22m**. At 13:40Z — nine minutes later — the next reading said **30%
+  used, resets in 4h53m**. Those cannot describe one window: it renewed almost immediately,
+  roughly three hours before the first reading predicted.
+
+  - **A reported "resets in Y" is an upper bound, not a floor.** Sleeping through it wastes an
+    open window, and the waste is invisible — nobody notices the agents that idled. Re-read before
+    committing to a long wait, and let any later evidence of service cancel the wait.
+  - This is why a `renewed`, or any percentage under 100, now supersedes an unexpired `limit-hit`
+    for both the context block and the launcher wait. Before that fix, one stale deadline idled
+    every agent on the machine until its own `resetAt` passed.
+
+- **2026-08-02, exhaustion projections must use a recent rate.** Measured on a **synthetic**
+  fixture (three agents burning hard for 50 minutes, then all but one stopping), so treat the
+  magnitudes as a bound rather than a field number: dividing total window spend by elapsed time
+  projected exhaustion in **57 minutes** and advised stopping early, while the rate measured since
+  the last reading projected **eight hours** and comfortably past renewal. Same log, same
+  transcripts. An average over the window keeps charging for agents that no longer exist.
 
 _(append findings here with the date and what was running at the time)_
 
