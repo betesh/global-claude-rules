@@ -14,6 +14,10 @@ once a `usage-report` event exists to calibrate against.
 
 The window length is an assumption until a report confirms it — override with
 CLAUDE_USAGE_WINDOW_MINUTES.
+
+Reads the hook's JSON payload on stdin for `session_id`: several agents append to
+one log, so every line it writes is tagged with the session that wrote it, and it
+tells the model that id so its own appends carry the same tag.
 """
 
 import glob
@@ -35,6 +39,24 @@ EVENTS_PATH = os.path.join(REPO_DIR, "usage", "events.jsonl")
 CONFIG_DIR = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
 
 now = datetime.now(timezone.utc)
+
+
+def hook_session_id():
+    """This session's id, from the JSON the harness pipes to a SessionStart hook.
+
+    Absent when the script is run by hand, so every use of it stays optional.
+    """
+    if sys.stdin.isatty():
+        return None
+    try:
+        payload = json.load(sys.stdin)
+    except (json.JSONDecodeError, OSError, ValueError):
+        return None
+    session_id = payload.get("session_id") if isinstance(payload, dict) else None
+    return session_id if isinstance(session_id, str) and session_id else None
+
+
+SESSION_ID = hook_session_id()
 
 
 def parse_time(value):
@@ -109,11 +131,14 @@ def find_window_start(events):
 
 
 def log_first_request():
-    line = json.dumps({
+    event = {
         "t": stamp(now).replace("Z", ":00Z"),
         "kind": "first-request",
         "note": "session start; logged by hook before any request",
-    })
+    }
+    if SESSION_ID:
+        event["session"] = SESSION_ID
+    line = json.dumps(event)
     try:
         os.makedirs(os.path.dirname(EVENTS_PATH), exist_ok=True)
         with open(EVENTS_PATH, "a") as f:
@@ -296,7 +321,11 @@ def main():
 
     print("Shared credit window (computed by a SessionStart hook; no request was spent):")
     print("\n".join(out))
-    print(f"  log      {EVENTS_PATH} — append what you observe; conclusions go in usage/notes.md")
+    tag = (
+        f', tagged "session":"{SESSION_ID}" so a line can be traced back to the agent that wrote it'
+        if SESSION_ID else ""
+    )
+    print(f"  log      {EVENTS_PATH} — append what you observe{tag}; conclusions go in usage/notes.md")
 
 
 try:

@@ -26,12 +26,17 @@ The log is append-only, one JSON object per line, newest last. Create the direct
 **Append; never rewrite.** Concurrent appends of a single short line survive each other; a
 read-modify-write loses whatever another agent wrote in between.
 
+Every line carries a **`session`** — the id of the agent that wrote it. Several agents append to
+one file, so an untagged line cannot be traced back to what was running when it was observed, and
+that context is most of what makes an old entry usable. The SessionStart hook reports your session
+id on its `log` line; use that value verbatim.
+
 ```bash
-printf '%s\n' '{"t":"2026-07-31T15:04:05Z","kind":"limit-hit","resetAt":"2026-07-31T15:55:00Z"}' \
+printf '%s\n' '{"t":"2026-07-31T15:04:05Z","session":"<your-session-id>","kind":"limit-hit","resetAt":"2026-07-31T15:55:00Z"}' \
   >> <rules-repo>/usage/events.jsonl
 ```
 
-Kinds worth logging, all with a `t` timestamp in UTC:
+Kinds worth logging, all with a `t` timestamp in UTC and a `session`:
 
 | kind | fields | when |
 |---|---|---|
@@ -52,7 +57,8 @@ Reduce it newest-first:
   so use it instead of reconstructing one.
 - Otherwise take the earliest `first-request` after the last `renewed`. That is the window start;
   the predicted renewal is one window length later.
-- A `sleep` event covering the same period means someone is already waiting. Waking a few seconds
+- A `sleep` event covering the same period whose `session` is not yours means someone else is
+  already waiting; one carrying your own id is a wait you declared and are still bound by. Waking a few seconds
   apart is fine and expected; add a small random offset (tens of seconds) so several agents do not
   all fire at the same instant and race for the first request.
 

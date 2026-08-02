@@ -66,6 +66,6 @@ print(json.dumps({
 
 if [ "$MODE" = install ]; then
 	echo "Verifying hook output..."
-	"$HOOK" | sed 's/^/  | /'
+	"$HOOK" </dev/null | sed 's/^/  | /'
 	echo "Done. The window state above is what each new session will see."
 fi

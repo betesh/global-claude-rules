@@ -10,7 +10,9 @@
 #     limit-hit whose reset has not passed yet, any percentage the user reported;
 #   * the session transcripts under the Claude config dir, whose per-request
 #     `message.usage` counts are the only local measure of what every agent on
-#     this machine has actually spent.
+#     this machine has actually spent;
+#   * the hook payload on stdin, whose session_id tags the log line it writes and
+#     is reported so the model's own appends carry the same tag.
 #
 # When credit is already out, that warning lands before the model can start work
 # — the one moment a wait is free.
