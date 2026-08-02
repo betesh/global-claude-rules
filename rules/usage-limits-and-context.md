@@ -1,197 +1,61 @@
-# Predict the usage window; keep context small
+# Usage window and context size
 
-_Several agents share one account. Pool what each learns about the credit window in a shared log, and treat context size as spend._
+_Several agents share one account, on a rolling 5-hour window. Hooks watch it; you log what only
+you can see, and treat context as spend._
 
-Credit renews on a rolling window — reported as **5 hours**, starting from the first request sent
-after the previous window ended, not from midnight and not per session. Agents run concurrently
-against one account, so the window one agent starts is the window all of them are living in, and
-no agent can see the whole picture alone. Hence a shared file.
+## The hooks watch the window, not you
 
-Every number here is provisional and refined by observation, not assumed
-(`measure-before-recording.md`). An agent that learns something the log does not say is expected
-to write it down.
+`install-usage-hook.sh` installs both halves, and neither costs a request:
 
-## The shared log
+- **SessionStart** prints where the window stands at the top of your context.
+- **UserPromptSubmit** refuses the prompt outright when the window is spent, so nothing is sent.
 
-Both files live in the **rules repository** — its absolute path is in the SessionStart context that
-loaded these rules; read that path, never hard-code one (`rules-repo-workflow.md`). Keeping them in
-a repo means every change shows up in `git status` and `git log` like any other work.
+If no window block appears at session start, they are not installed here and nothing is watching.
+Do not reimplement them by hand: scanning transcripts yourself costs the request you were saving.
 
-- `<rules-repo>/usage/events.jsonl` — raw observations. **Gitignored**: machine-local, noisy, and
-  appended by concurrent agents.
-- `<rules-repo>/usage/notes.md` — what those observations taught you. **Committed**, so a
-  conclusion outlives the machine that measured it.
+## Log only what the transcripts cannot show
 
-The log is append-only, one JSON object per line, newest last. Create the directory if missing.
-**Append; never rewrite.** Concurrent appends of a single short line survive each other; a
-read-modify-write loses whatever another agent wrote in between.
-
-Every line carries a **`session`** — the id of the agent that wrote it. Several agents append to
-one file, so an untagged line cannot be traced back to what was running when it was observed, and
-that context is most of what makes an old entry usable. The SessionStart hook reports your session
-id on its `log` line; use that value verbatim.
-
-```bash
-printf '%s\n' '{"t":"2026-07-31T15:04:05Z","session":"<your-session-id>","kind":"limit-hit","resetAt":"2026-07-31T15:55:00Z"}' \
-  >> <rules-repo>/usage/events.jsonl
-```
-
-Log only what the transcripts cannot tell you later, all with a `t` timestamp in UTC and a
-`session`:
+The log is `<rules-repo>/usage/events.jsonl` (gitignored); conclusions go in `usage/notes.md`
+(committed). Append one JSON line, never rewrite — concurrent agents share it. Tag every line with
+the `session` id the SessionStart block reports.
 
 | kind | fields | when |
 |---|---|---|
-| `usage-report` | `pct`, `renewsInMin`, plus what was running | the user tells you how much credit is spent and when it renews |
-| `limit-hit` | `resetAt` when the error states one | the moment a request is refused for credit |
-| `sleep` | `untilT`, `reason` | before you sleep, so another agent does not duplicate the wait |
+| `usage-report` | `pct`, `renewsInMin`, `agents` | the user states how much is spent and when it renews |
+| `limit-hit` | `resetAt`, `pctAtHit` | a request is actually refused |
+| `sleep` | `untilT`, `reason` | before you wait, so another agent does not duplicate it |
 
-Nothing else. Token counts, request counts, when a window opened, which sessions were running —
-all of it is already in the transcripts, timestamped per request, and can be reconstructed for
-**any past moment** long after the fact. So a percentage the user reports needs no token count
-taken alongside it; the tokens can be attached to it later. What cannot be recovered is the
-percentage itself, a refusal, and another agent's intent to wait, which is exactly the three kinds
-above.
+Nothing else. Token counts, request counts, when the window opened, which sessions ran — all of it
+is in the transcripts already and can be reconstructed for any past moment, so a reported
+percentage needs no token count taken beside it.
 
-## Before a long unattended run, read the log
-
-Reduce it newest-first:
-
-- A `limit-hit` whose `resetAt` is still in the future means credit is out **now**. Sleep until
-  then rather than discovering it again — another agent already paid for that information. But a
-  `renewed`, or a reported percentage under 100, logged **after** that hit cancels it: a window can
-  renew hours before the reset a refusal reported, and a `resetAt` is an upper bound, not a floor.
-- Otherwise a `usage-report` newer than the last `renewed` wins: it states the renewal directly,
-  so use it instead of reconstructing one.
-- Otherwise take the earliest `first-request` after the last `renewed`. That is the window start;
-  the predicted renewal is one window length later.
-- A `sleep` event covering the same period whose `session` is not yours means someone else is
-  already waiting; one carrying your own id is a wait you declared and are still bound by. Waking a few seconds
-  apart is fine and expected; add a small random offset (tens of seconds) so several agents do not
-  all fire at the same instant and race for the first request.
-
-Sleep with a background `sleep` command, not a scheduled cloud agent.
+**Ask for a reading when it would change what you do** — before a long unattended run, or anything
+that cannot resume halfway. An agent cannot read remaining credit; a user reporting it is the only
+direct measurement, and it is what calibrates every estimate. Do not ask on a cadence.
 
 ## A declared sleep is binding
 
-Once you have said you are sleeping until a time, **do no work until that time** — no tool calls,
-no commits, no "one quick local edit". Local edits are not free: every tool call is a separate
-round trip that re-sends the whole conversation, so a handful of "cheap" calls during a dead
-window costs more than the reply that announced the sleep.
+Once you say you are waiting until a time, do no work until then — no tool calls, no commits, no
+"one quick edit". Each is a round trip that re-sends the whole conversation.
 
-If the user prompts you mid-sleep, the model has already been invoked and that request is spent —
-you cannot refuse it back. What you can still control is everything after it: **answer in one
-turn, with zero tool calls**, restate when you will resume, and stop. Do not treat a question as
-permission to resume, and do not start the queued work because you happen to be awake.
-
-Two things end a sleep early: an explicit instruction to continue, and **evidence that credit came
-back** — a reported percentage under 100, or a request that plainly succeeded. The wait exists to
-avoid spending against an exhausted window; once the window is open, continuing to wait is pure
-waste, and invisible waste, because nobody notices the agents that sat idle. Stop the background
-wait, log `renewed`, and resume.
-
-The same applies to a request that looks trivial. "Just add one line to a file" is a tool call, a
-commit is two or three more, and the point of the sleep was that none of them can be afforded.
-
-## Sleeping without spending a request at all
-
-An agent cannot decide to sleep for free. Rules and project files are injected into context by
-the harness, but acting on them requires the model to run, which is the request you were trying
-to avoid — so by the time you conclude that credit is out, you have already spent the round trip
-that discovering it cost. No rule written here can change that, which is why the enforcement is
-not a rule.
-
-Code that runs **outside** the model does it instead, and `install-usage-hook.sh` installs both
-halves:
-
-- A **`SessionStart`** report puts the window state at the top of your context — where it stands,
-  what has been spent, and what that converts to as a percentage.
-- A **`UserPromptSubmit`** gate runs on every prompt and exits 2 when the window is spent, so the
-  harness drops the prompt and nothing is sent at all. This is the half that matters while a
-  session is draining: the report runs once, before that session has spent anything.
-
-The gate refuses on an observed refusal outright, but on an **estimate** only when two or more
-readings back it — a single reading cannot separate spend the scan misses from the rate, and
-idling every agent on a bad estimate is the more expensive mistake, because nobody notices it.
-`CLAUDE_USAGE_GATE_PCT` moves the threshold; a crash in it always fails open.
-
-If no window block appears at session start, neither hook is installed on this machine and nothing
-is watching the window for you.
-
-## Refine the estimate from a reported reading
-
-**An agent cannot read the account's remaining credit** — there is no tool for it. A user saying
-"X% used, renews in Y minutes" is therefore the only direct reading available, and it beats every
-inference drawn from the window start. Log it as `usage-report` and get four things out of it:
-
-- **Renewal becomes known rather than derived.** `t + Y minutes` is the window end. Anything the
-  window-start reconstruction says is a fallback for when no report exists.
-- **Window length falls out of the pair.** Reported end minus observed start. When that disagrees
-  with what the notes assume, the notes are what is wrong — correct them.
-- **Two reports give a burn rate.** Δpct over the minutes between them, extrapolated to 100%, is a
-  projected exhaustion time. Compare it with the renewal time: if exhaustion lands first, the
-  remaining work has to be paced, narrowed, or slept through — decide then, not at the refusal.
-- **Divided by what happened, it gives a cost.** Δpct over the turns between two reports is a cost
-  per turn, and `(100 − pct)` over that is roughly how many turns remain. This only transfers to a
-  later situation if you record the conditions with it (`measure-before-recording.md`): how many
-  agents were running, how big the contexts were, whether the traffic was long tool outputs or
-  short replies. A rate measured with one agent on a small context does not describe four agents
-  near a context limit.
-
-Two supporting habits make those numbers sharper:
-
-- **Log `context` readings next to reports.** Cost per turn scales with context size, so a rate
-  is only interpretable joined to one. This is the same reason context management belongs to this
-  rule and not a separate one.
-- **A `limit-hit` pins the ceiling.** Record the last reported pct alongside it. Whether refusal
-  arrives at a reported 100% or noticeably earlier is a fact only a hit can establish.
-
-**Ask for a reading when one would change what you do** — before a long unattended run, before
-deciding to sleep, before starting something that cannot be resumed halfway. It costs the user one
-line and is cheaper than being wrong about the window. Do not ask on a cadence; a reading you
-would not act on is spend.
-
-## The transcripts are a local spend proxy
-
-Every session writes a JSONL transcript under the projects directory of the Claude config dir
-(`$CLAUDE_CONFIG_DIR`, else `~/.claude`), and each assistant message in it carries a
-`message.usage` object — input, output, and cache read/creation token counts — with a timestamp
-and model. Summed across **all** transcripts modified since the window start, that is total
-traffic for every agent on this machine: the closest thing to measured spend available locally,
-and it costs no request to compute.
-
-Tokens are not percent, and a `usage-report` is what converts them. Convert by fitting a line —
-`pct = intercept + tokens / per_pct` — across **every** reading in the window, not by dividing one
-reading's tokens by its percentage. The intercept is why: spend the scan cannot see, from before
-the window start it inferred or from transcripts outside the config dir, is a constant offset, and
-forcing the line through the origin pushes that offset into the slope. Measured here, that error
-was a factor of two, and in the direction that reports a live window as exhausted.
-
-Two readings give a usable slope, three make it over-determined so one mistyped percentage bends
-the line instead of defining it. Track the components separately rather than summing them raw —
-cache reads, fresh input, and output are not priced alike, so a ratio fitted to one traffic mix
-will mispredict another, and a mix that is ~98% cache read cannot tell you what the others cost.
-
-Code outside the model does the scanning: a `SessionStart` hook in the rules repo already reports
-the window state, the tokens spent in it, and a calibrated percentage when a report exists. Read
-that block instead of recomputing it — a scan the model performs costs the request it was trying
-to save.
-
-Keep the running conclusions in `<rules-repo>/usage/notes.md` — window length when it disagrees
-with the assumption, how early limits arrive under N concurrent agents, measured cost per turn and
-the conditions it was measured under, anything about renewal that surprised you. Refine what is
-there rather than appending a second opinion beside it, and commit it (`rules-repo-workflow.md`).
+If the user prompts you mid-wait, that request is already spent: answer in one turn with **zero
+tool calls**, restate when you resume, stop. A question is not permission to resume. Two things do
+end a wait early: an instruction to continue, and evidence credit returned — a reported percentage
+under 100, or a request that plainly succeeded. Waiting out an open window is invisible waste.
 
 ## Context size is spend
 
-Every request re-sends the whole conversation, so a large context costs credit on **each** turn,
-not once. Managing context is therefore part of managing the window, which is why both live here.
+Every request re-sends the whole context, so its size is charged on **every** turn.
 
-- Recommend `/compact` when the work must continue in this session and context is past roughly
-  **70%**. Say so plainly rather than waiting to be asked.
-- Recommend `/clear` instead — it frees more — when the next task does not depend on this
-  conversation. **Before recommending it, make the record durable**: the plan or task file
-  reflects the remaining work, anything learned about the repo's own tooling is written into the
-  repo rather than held in the conversation, and the backlog is current. Then say what the next
-  session should pick up.
-- A conversation whose findings are all written down is cheap to clear and expensive to keep.
-  Prefer writing them down early, not at the point where context forces it.
+Measured: **~79% of all spend is the fixed prefix** — system prompt, tool definitions, and whatever
+session start injects — re-read on every request. Only ~21% is the conversation. Two consequences:
+
+- **`/clear` can save at most about a fifth.** It drops the conversation, not the prefix. Recommend
+  it when the next task does not depend on this one — but first make the record durable: the plan
+  file reflects what is left, and anything learned about the repo is written into the repo.
+  Recommend `/compact` instead when the work must continue here and context is past roughly 70%.
+- **Trimming large tool outputs is not worth doing.** Measured at under 0.1% of a window. Do not
+  contort a command to shrink its output.
+
+Adding to these rules is not free: they are re-read on every request of every session, so a
+thousand tokens here costs roughly 0.4 points of a window, more when more agents run.
