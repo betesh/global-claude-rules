@@ -3,7 +3,7 @@
 
 Invoked by usage-window.sh with REPO_DIR set. Two sources, both local:
 
-  usage/events.jsonl   what agents have observed — window starts, limit hits,
+  usage/events.jsonl   what agents have observed — window starts and the
                        percentages the user reported
   <config>/projects/*/*.jsonl   session transcripts, whose per-request
                        `message.usage` counts measure what was actually sent
@@ -14,7 +14,9 @@ once a `usage-report` event exists to calibrate against.
 
 The window is exactly five hours. A reported renewal therefore fixes when it
 started, by subtraction, more precisely than the event log can — override the
-length with CLAUDE_USAGE_WINDOW_MINUTES.
+length with CLAUDE_USAGE_WINDOW_MINUTES. Renewal is always the start plus that
+length: nothing here waits on a refusal to be observed, because a refusal
+already cost the request it reported on, and one was never once recorded.
 
 Reads the hook's JSON payload on stdin for `session_id`: several agents append to
 one log, so every line it writes is tagged with the session that wrote it, and it
@@ -90,6 +92,9 @@ SESSION_ID = ARGS.session or (None if ARGS.sleep_seconds else hook_session_id())
 # being refused, and the estimate carries a percentage point or two of slack.
 GATE_AT_PCT = float(os.environ.get("CLAUDE_USAGE_GATE_PCT", "97"))
 
+# How far past a derived renewal to aim when waiting one out. See wake_at.
+WAKE_MARGIN = timedelta(seconds=60)
+
 
 def parse_time(value):
     if not isinstance(value, str):
@@ -148,35 +153,6 @@ def newest(events, kind):
     return None
 
 
-def credit_returned_after(events, when):
-    """True when something logged after `when` shows requests are being served again.
-
-    A limit-hit or a declared sleep names a deadline to wait until, but credit
-    can come back before it — a window may renew earlier than the wait a refusal
-    reported. A later `renewed`, or a reported percentage below 100, is direct
-    evidence the account is serving. Without this check one stale entry keeps
-    every agent idle until its own deadline passes, which is the expensive
-    direction to be wrong in: the window is open and nobody is using it.
-    """
-    for event in reversed(events):
-        if event["_t"] <= when:
-            return False
-        if event.get("kind") == "renewed":
-            return True
-        pct = event.get("pct")
-        if event.get("kind") == "usage-report" and isinstance(pct, (int, float)) and pct < 100:
-            return True
-    return False
-
-
-def standing_limit_hit(events):
-    """The newest limit-hit, unless something later showed credit came back."""
-    hit = newest(events, "limit-hit")
-    if hit and credit_returned_after(events, hit["_t"]):
-        return None
-    return hit
-
-
 def find_window_start(events):
     """Earliest evidence of a served request since the last window ended.
 
@@ -186,12 +162,8 @@ def find_window_start(events):
     mid-conversation reports the window as starting whenever the hook next runs,
     and silently drops every reading taken in between.
     """
-    boundary = None
-    limit_hit = standing_limit_hit(events)
     renewed = newest(events, "renewed")
-    for candidate in (limit_hit and parse_time(limit_hit.get("resetAt")), renewed and renewed["_t"]):
-        if candidate and (boundary is None or candidate > boundary):
-            boundary = candidate
+    boundary = renewed["_t"] if renewed else None
 
     starts = [
         e["_t"] for e in events
@@ -220,47 +192,15 @@ def log_first_request():
     append_event({"kind": "first-request", "note": "session start; logged by hook before any request"})
 
 
-def pending_wait(events):
-    """The time to wait until before starting an agent, or None to start now.
+def wake_at(renews):
+    """When to come back after a window that is spent: renewal, plus slack.
 
-    Only events where someone already established that credit is gone count: a
-    limit-hit whose reset has not passed, and a sleep another agent declared and
-    is still serving. A percentage estimate is deliberately not grounds to wait
-    — the calibration behind it has been wrong by multiples, and waiting out a
-    window that is actually serving costs more than one refusal would.
+    The renewal time is derived — start plus a fixed length — so a launcher that
+    aims exactly at it lands on the boundary and can be refused by a clock a
+    minute off. A flat margin crosses it, and a few tens of seconds of jitter on
+    top keep agents released by the same renewal from racing the first request.
     """
-    waits = []
-    limit_hit = standing_limit_hit(events)
-    if limit_hit:
-        reset_at = parse_time(limit_hit.get("resetAt"))
-        if reset_at and reset_at > now:
-            waits.append((reset_at, f"limit-hit at {stamp(limit_hit['_t'])} puts renewal at {stamp(reset_at)}"))
-
-    declared = newest(events, "sleep")
-    if declared and not credit_returned_after(events, declared["_t"]):
-        until = parse_time(declared.get("untilT"))
-        if until and until > now:
-            who = declared.get("session") or "an untagged session"
-            waits.append((until, f"{who} is already waiting until {stamp(until)}"))
-
-    return max(waits, default=None)
-
-
-def report_sleep(events):
-    """Print seconds for a launcher to sleep; the reason goes to stderr."""
-    wait = pending_wait(events)
-    if wait is None:
-        print(0)
-        return
-    until, reason = wait
-    # A few tens of seconds of jitter so agents released by the same renewal do
-    # not all race for the first request.
-    until += timedelta(seconds=random.randint(0, 60))
-    print(max(0, round((until - now).total_seconds())))
-    append_event(
-        {"kind": "sleep", "untilT": stamp_seconds(until), "reason": f"{reason}; waiting before launch"}
-    )
-    print(f"credit is out: {reason}; waiting until {stamp(until)}", file=sys.stderr)
+    return renews + WAKE_MARGIN + timedelta(seconds=random.randint(0, 60))
 
 
 def scan_transcripts(since):
@@ -421,31 +361,16 @@ def window_state(events):
     }
 
 
-def gate_reason(events, state):
+def gate_reason(state):
     """Why this request must not be sent, or None to let it through.
 
-    Two independent grounds, and they are not equally trustworthy:
-
-    An unexpired `limit-hit` is an observation — a request was actually refused
-    — so it blocks on its own.
-
-    An estimate is not. It has been wrong by a factor of two in this repo's own
-    measurements, and refusing on a bad one idles every agent on the machine
-    until the window turns over, which is the more expensive mistake because
-    nobody notices it. So the estimate only blocks when a measured slope stands
-    behind it (two or more readings) and the renewal it would wait for is a time
-    the log actually knows.
+    The fitted estimate is the only ground, and it is not a trustworthy one. It
+    has been wrong by a factor of two in this repo's own measurements, and
+    refusing on a bad one idles every agent on the machine until the window
+    turns over, which is the more expensive mistake because nobody notices it.
+    So it blocks only when a measured slope stands behind it (two or more
+    readings) and the renewal it would wait for is a time the log actually knows.
     """
-    limit_hit = standing_limit_hit(events)
-    if limit_hit:
-        reset_at = parse_time(limit_hit.get("resetAt"))
-        if reset_at and reset_at > now:
-            return (
-                f"a request was refused at {stamp(limit_hit['_t'])}, putting renewal at "
-                f"{stamp(reset_at)} ({duration(reset_at - now)} from now)",
-                reset_at,
-            )
-
     estimate, last = state["estimate"], state["last"]
     if estimate is None or estimate < GATE_AT_PCT or state["backing"] < 2:
         return None
@@ -458,7 +383,26 @@ def gate_reason(events, state):
     )
 
 
-def run_gate(events):
+def report_sleep(events, state):
+    """Print seconds for a launcher to sleep; the reason goes to stderr.
+
+    Same test as the gate, so a launcher and a running session never disagree
+    about whether the account is serving.
+    """
+    reason = gate_reason(state)
+    if reason is None:
+        print(0)
+        return
+    why, renews = reason
+    until = wake_at(renews)
+    print(max(0, round((until - now).total_seconds())))
+    append_event(
+        {"kind": "sleep", "untilT": stamp_seconds(until), "reason": f"{why}; waiting before launch"}
+    )
+    print(f"credit is out: {why}; waiting until {stamp(until)}", file=sys.stderr)
+
+
+def run_gate(events, state):
     """Refuse a request outright when credit is gone, else describe the window.
 
     Exit 2 is what makes this autonomous: the harness drops the prompt before a
@@ -466,13 +410,11 @@ def run_gate(events):
     cheaper than this — a warning in context, a rule the model is asked to
     follow — still spends the request that discovers the window is empty.
     """
-    state = window_state(events)
-    reason = gate_reason(events, state)
+    reason = gate_reason(state)
     if reason:
         why, until = reason
-        wait = until + timedelta(seconds=random.randint(0, 60))
         if not newest_sleep_covers(events, until):
-            append_event({"kind": "sleep", "untilT": stamp_seconds(wait),
+            append_event({"kind": "sleep", "untilT": stamp_seconds(wake_at(until)),
                           "reason": f"{why}; gated before the request was sent"})
         print(
             f"Credit is out: {why}. Not sending this request. The window renews at "
@@ -495,7 +437,7 @@ def newest_sleep_covers(events, until):
     """True when a sleep already declared reaches this renewal, so one gated
     agent does not append a near-duplicate line on every prompt it blocks."""
     declared = newest(events, "sleep")
-    if not declared or credit_returned_after(events, declared["_t"]):
+    if not declared:
         return False
     when = parse_time(declared.get("untilT"))
     return bool(when and when >= until - timedelta(minutes=5))
@@ -503,28 +445,16 @@ def newest_sleep_covers(events, until):
 
 def main():
     events = read_events()
+    state = window_state(events)
     if ARGS.sleep_seconds:
-        report_sleep(events)
+        report_sleep(events, state)
         return
     if ARGS.gate:
-        run_gate(events)
+        run_gate(events, state)
         return
 
     out = []
 
-    limit_hit = standing_limit_hit(events)
-    reset_at = parse_time(limit_hit.get("resetAt")) if limit_hit else None
-    if reset_at and reset_at > now:
-        print(
-            f"CREDIT IS OUT — a limit-hit logged at {stamp(limit_hit['_t'])} puts renewal at "
-            f"{stamp(reset_at)}, {duration(reset_at - now)} from now. Another agent already paid "
-            "for this information; do not rediscover it. Start no work: say you are waiting until "
-            "then and stop, or sleep in the background with a small random offset so concurrent "
-            f"agents do not race the first request (see {REPO_DIR}/rules/usage-limits-and-context.md)."
-        )
-        return
-
-    state = window_state(events)
     if state["opened"]:
         log_first_request()
     window_start = state["window_start"]

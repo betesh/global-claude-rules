@@ -91,7 +91,16 @@ system prefix was 79% of spend for exactly that reason, and it was wrong.
 **0.4 points of a window per 1,000 tokens** at two concurrent sessions, and more with more agents.
 Real, and worth trimming, but an order of magnitude below session lifetime.
 
-**Refusals arrive at a reported 100%.**
+## Refusals have never been observed
+
+Across every window logged here, **not one request has been recorded as refused**. The reported
+percentage saturates at 100 and work continues, so there is no measurement of what a refusal looks
+like, when it arrives, or what reset time it reports.
+
+So renewal is not something to wait to be told. It is **the window start plus five hours**, and a
+launcher or a gate that waits for a refusal to name the time waits forever. Aim a minute past the
+derived boundary, plus a few random seconds, since the derivation can be a clock-skew off and
+concurrent agents would otherwise race the first request.
 
 ## What we still do not know
 

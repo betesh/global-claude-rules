@@ -6,8 +6,8 @@
 #
 # It runs before the model does, so everything it reports costs no request:
 #
-#   * the shared event log in ../usage/events.jsonl — the window start, any
-#     limit-hit whose reset has not passed yet, any percentage the user reported;
+#   * the shared event log in ../usage/events.jsonl — the window start and any
+#     percentage the user reported;
 #   * the session transcripts under the Claude config dir, whose per-request
 #     `message.usage` counts are the only local measure of what every agent on
 #     this machine has actually spent;

@@ -22,7 +22,6 @@ the `session` id the SessionStart block reports.
 | kind | fields | when |
 |---|---|---|
 | `usage-report` | `pct`, `renewsInMin`, `agents` | the user states how much is spent and when it renews |
-| `limit-hit` | `resetAt`, `pctAtHit` | a request is actually refused |
 | `sleep` | `untilT`, `reason` | before you wait, so another agent does not duplicate it |
 
 Nothing else. Token counts, request counts, when the window opened, which sessions ran — all of it
