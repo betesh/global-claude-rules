@@ -102,12 +102,14 @@ def main():
                 continue
             message = e.get("message") or {}
             usage = message.get("usage")
+            # An assistant message is both a request and a set of blocks that stay
+            # in context; counting only the first drops every reply and tool call.
             if e.get("type") == "assistant" and isinstance(usage, dict):
                 events.append(("req", None))
                 if first_usage is None:
                     first_usage = usage
                 cache_read += usage.get("cache_read_input_tokens", 0)
-            elif e.get("type") in ("assistant", "user"):
+            if e.get("type") in ("assistant", "user"):
                 for label, n in blocks(message.get("content")):
                     label = "user prompt" if (e["type"] == "user" and label == "text") else label
                     events.append((label, n // 4))
