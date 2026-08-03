@@ -90,6 +90,34 @@ Beware measuring this by "what was added during the window" — blocks added *be
 to that method and get silently attributed to fixed overhead. An earlier pass here concluded the
 system prefix was 79% of spend for exactly that reason, and it was wrong.
 
+### The floor every request pays
+
+Measured over one window in which **every** session started after the boundary, so carried-in was
+zero by construction and the other terms are visible on their own: 140 requests, 10.5M tokens of
+context, three sessions in one project.
+
+- **The floor was 22,111 / 21,907 / 22,190 tokens** — the first request's context in each session,
+  before any conversation exists: system prompt, tool schemas, skill listings, project `CLAUDE.md`,
+  session-start hook output. Times 140 requests that is ~3.0M, **~30% of the window**, the largest
+  single term once nothing is carried in. `/context` in one of those sessions split it as 16.7K
+  deferred tool schemas, 10.3K always-loaded tools, 3.9K system prompt, 2K skills, 1K `CLAUDE.md` —
+  those sum well past the measured 22.1K, so treat the split as indicative and the total as
+  measured.
+- `usage/context-cost.py` reports this floor as **"carried in"**, because `at_open` is the first
+  in-window request's cached prefix and for a session that started inside the window that prefix is
+  the floor. Any carried-in share quoted from it is inflated by roughly the floor times the
+  session's request count.
+- **62 of the 140 requests produced under 400 output tokens, and cost 4.6M — 43% of context spend.**
+  That is what they cost, not what removing them would save; how many of them needed to be separate
+  requests is unmeasured.
+- **`Edit` inputs cost 746K**, 645K of it in one session, since `old_string` and `new_string` stay
+  in context for every request that follows. Tool results were 2.4M, and both are attributed by
+  counting characters over four, so they are approximations, unlike the request totals.
+- **Thinking is not recoverable from a transcript**: the block persists with its `signature` and an
+  empty `thinking` string, so any scan scores it zero. One session emitted 65.7K output tokens
+  against ~21K of text and tool calls, and the difference occupies context like anything else.
+  Deriving it from output tokens is the only route, and the result is derived, not measured.
+
 **The rules in this repo** are re-read on every request of every session, so they cost roughly
 **0.4 points of a window per 1,000 tokens** at two concurrent sessions, and more with more agents.
 Real, and worth trimming, but an order of magnitude below session lifetime.
