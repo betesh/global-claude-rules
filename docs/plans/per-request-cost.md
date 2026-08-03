@@ -6,21 +6,11 @@ and the payloads that edits leave behind. Measured over one window (140 requests
 the floor was 22.1K per request (~30% of the window), requests producing under 400 output tokens
 were 44% of all requests and 43% of context spend, and `Edit` inputs carried 746K.
 
-Phase 1 is a prerequisite for the other two: the attribution tool currently accounts for 45% of a
-window and labels the floor as carried history, so any figure the later phases quote from it would
-be wrong in the same direction.
+Phase 1 is a prerequisite for the other two: the attribution tool does not yet account for most of
+a window, so any figure the later phases quote from it would be wrong in the same direction.
 
 ## Phase 1 — make the attribution honest before reading anything off it
 
-- [ ] Split the floor out of "carried in" in `usage/context-cost.py`.
-      - `at_open` is the first in-window request's cache-read plus cache-creation, so for a session
-        that *started* in this window it is the preamble, not history. Charging it as carried
-        overstates carried-in by roughly the floor times every request — a threshold read off it
-        would be inflated by ~22K per session.
-      - Report them as separate rows: history held across the boundary (zero for a session whose
-        first request came after it) and the floor (nonzero for every session).
-      - Check: a window in which every session started after the boundary reports zero carried and
-        a nonzero floor. The pair must still sum to what the single row reported before.
 - [ ] Account for thinking, which occupies context but is not recoverable from the transcript.
       - Transcripts persist `signature` and an empty `thinking` string, so `blocks()` scores it
         zero; one measured session emitted 65.7K output tokens against ~21K of text and tool calls.

@@ -13,6 +13,13 @@ fixed overhead instead. A long-lived session carries its whole history across th
 boundary, so that invisible share is usually the largest one — measured at 59% in
 one window, against 8% for tool results. Reported here as "carried in".
 
+What a session held when the window opened is two different things, and they are
+reported separately because they have different remedies. The **floor** is what
+its very first request already cost — system prompt, tool schemas, project
+instructions — which every session pays and no amount of clearing removes.
+"Carried in" is only what it held *beyond* that floor at the boundary, which is
+what clearing before the boundary would have saved.
+
 Everything measured comes from the transcripts. With no argument the newest
 usage-report in events.jsonl places the window — renewal minus five hours — but
 that log is a scratch record of what agents observed and can be emptied at any
@@ -91,16 +98,23 @@ def transcripts(since):
             continue
 
 
+def prefix(usage):
+    """The cached prefix a request sent: everything it did not have to compose."""
+    return (usage.get("cache_read_input_tokens", 0)
+            + usage.get("cache_creation_input_tokens", 0))
+
+
 def walk(path, since):
     """One pass over a transcript: what it held at `since`, and what came after.
 
-    Returns the context size at the boundary, the request ids in order, the last
+    Returns the session's floor (its very first request's prefix, whenever that
+    was), the context size at the boundary, the request ids in order, the last
     usage line seen for each — one request streams as several lines sharing a
     requestId, each carrying the running totals, so counting lines counts the
     same request several times over — and the timeline of blocks and requests
     that followed.
     """
-    at_start, order, usages, timeline = 0, [], {}, []
+    floor, at_start, order, usages, timeline = 0, 0, [], {}, []
     for line in open(path, errors="replace"):
         try:
             e = json.loads(line)
@@ -112,7 +126,13 @@ def walk(path, since):
             continue
         message = e.get("message") or {}
         usage = message.get("usage")
-        is_request = e.get("type") == "assistant" and isinstance(usage, dict)
+        # A synthetic assistant message carries an all-zero usage block and was
+        # never sent anywhere. Counting it as a request scores that session's
+        # floor as zero, since it is usually the first line in the file.
+        is_request = (e.get("type") == "assistant" and isinstance(usage, dict)
+                      and context_size(usage) > 0)
+        if is_request and not floor:
+            floor = prefix(usage)
         if is_request and when <= since:
             at_start = context_size(usage)
         if when < since:
@@ -130,28 +150,29 @@ def walk(path, since):
             for label, n in blocks(message.get("content")):
                 label = "user prompt" if (e["type"] == "user" and label == "text") else label
                 timeline.append((label, n // 4))
-    return at_start, order, usages, timeline
+    return floor, at_start, order, usages, timeline
 
 
-def report_carried(rows, cache_read, since):
-    """What each session spent on history it already held when the window opened.
+def report_sessions(rows, cache_read, since):
+    """What each session spent before doing any work in this window.
 
-    Context at the boundary times requests since it: every one of those requests
-    re-sent that history, so the product is what clearing at the boundary would
-    have saved. A session whose first request came after the boundary brought
-    nothing in and scores zero, however large it has since grown — clearing it
-    saves only what it just paid for.
+    Each figure is a context size times the requests that re-sent it, so it is
+    what removing that context at the boundary would have saved. The floor is
+    the session's own first request and cannot be removed at all; carried is
+    everything it held beyond the floor when the window opened. A session whose
+    first request came after the boundary carried nothing in, however large it
+    has since grown — clearing it saves only what it just paid for.
     """
     rows = sorted(rows, reverse=True)
-    print(f"\ncarried in, per session (context at {since:%H:%M}Z × requests since)\n")
-    print(f"  {'session':56s} {'at start':>9s} {'req':>5s} {'carried':>13s}  share")
-    for carried, at_start, requests, path in rows:
+    print(f"\nper session, before any work in this window (× requests since {since:%H:%M}Z)\n")
+    print(f"  {'session':48s} {'req':>5s} {'floor':>13s} {'carried':>13s}  share")
+    for carried, floor_cost, requests, path in rows:
         name = f"{os.path.basename(os.path.dirname(path))}/{os.path.basename(path)[:8]}"
         share = f"{100 * carried / cache_read:5.1f}%" if cache_read else "    -"
-        print(f"  {name[-56:]:56s} {at_start:>9,} {requests:>5} {carried:>13,}  {share}")
-    total = sum(r[0] for r in rows)
-    share = f"{100 * total / cache_read:5.1f}%" if cache_read else "    -"
-    print(f"  {'TOTAL':56s} {'':9s} {'':5s} {total:>13,}  {share}")
+        print(f"  {name[-48:]:48s} {requests:>5} {floor_cost:>13,} {carried:>13,}  {share}")
+    carried_total, floor_total = sum(r[0] for r in rows), sum(r[1] for r in rows)
+    share = f"{100 * carried_total / cache_read:5.1f}%" if cache_read else "    -"
+    print(f"  {'TOTAL':48s} {'':5s} {floor_total:>13,} {carried_total:>13,}  {share}")
     print(f"\n  window cache-read {cache_read:,} across {len(rows)} sessions")
 
 
@@ -164,25 +185,28 @@ def main():
         sys.exit("no open window in events.jsonl; pass a start time explicitly")
     print(f"window from {since:%Y-%m-%dT%H:%MZ}\n")
 
-    tally, carried, cache_read, rows = {}, 0, 0, []
+    tally, carried, floor_cost, cache_read, rows = {}, 0, 0, 0, []
     for path in transcripts(since):
-        at_start, order, usages, timeline = walk(path, since)
+        floor, _, order, usages, timeline = walk(path, since)
         requests = len(order)
         if not requests:
             continue
         cache_read += sum(u.get("cache_read_input_tokens", 0) for u in usages.values())
-        rows.append((at_start * requests, at_start, requests, path))
-        if requests < 5:
-            continue
 
         # Everything already in context when this session's first in-window
-        # request went out, charged to every request that followed it.
-        first_usage = usages[order[0]]
-        at_open = (first_usage.get("cache_read_input_tokens", 0)
-                   + first_usage.get("cache_creation_input_tokens", 0))
-        carried += at_open * requests
+        # request went out, charged to every request that followed it. The part
+        # of it the session was born with is the floor; only the rest is history
+        # it chose to keep, and only that part answers to clearing.
+        at_open = prefix(usages[order[0]])
+        session_floor = min(floor, at_open)
+        rows.append(((at_open - session_floor) * requests,
+                     session_floor * requests, requests, path))
+        if requests < 5:
+            continue
+        carried += (at_open - session_floor) * requests
+        floor_cost += session_floor * requests
         print(f"  {os.path.basename(os.path.dirname(path))[:48]:48s} "
-              f"{requests:>4} req, carried in {at_open:>9,}")
+              f"{requests:>4} req, floor {session_floor:>8,}, carried in {at_open - session_floor:>9,}")
 
         seen = 0
         for label, n in timeline:
@@ -191,9 +215,10 @@ def main():
             else:
                 tally[label] = tally.get(label, 0) + n * (requests - seen)
 
-    total = carried + sum(tally.values())
+    total = carried + floor_cost + sum(tally.values())
     print(f"\n{'source':18s} {'tokens':>14s}  share")
-    for label, value in [("carried in", carried)] + sorted(tally.items(), key=lambda kv: -kv[1]):
+    fixed = [("carried in", carried), ("floor", floor_cost)]
+    for label, value in fixed + sorted(tally.items(), key=lambda kv: -kv[1]):
         if value:
             print(f"{label:18s} {value:>14,}  {100 * value / total:5.1f}%")
     print(f"{'TOTAL':18s} {total:>14,}")
@@ -201,7 +226,7 @@ def main():
         print(f"\nmeasured cache-read this window: {cache_read:,} "
               f"({100 * total / cache_read:.0f}% accounted for)")
 
-    report_carried(rows, cache_read, since)
+    report_sessions(rows, cache_read, since)
 
 
 main()
