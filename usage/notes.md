@@ -60,3 +60,7 @@ boundary, with no idle gap anywhere near it, which is why that trigger now gates
 itself rather than on where a session's history sits relative to the window. Both genuine points
 sit well above the 50,000-token `CARRY_AT` default, so it isn't contradicted, but two points can't
 locate a knee — more real crossings, via `usage/context-cost.py`, are needed before moving it.
+
+CARRY_AT is still a guess. Both reading we have so far are comfortably above the current 50,000
+default, so it isn’t contradicted, but two points can’t locate the knee below which clearing
+saves less than the interruption costs. As more TTL are observed, we'll be able to refine that number.

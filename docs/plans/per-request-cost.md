@@ -31,6 +31,7 @@ difference of a thousand tokens between two configurations is a real signal.
         results framing ~3K of rule text that then sits in context for the rest of the session.
       - Only the framing is in scope, not the rule text: the saving to measure is the six calls and
         six results, against ~3K that gets re-sent either way.
+- [ ] Check whether transcripts distinguish between cache-hit and cache-miss.  Separating those 2 would make it clear how much we'll save by clearing more often
 
 ## Phase 3 — establish how much of the request count is avoidable
 

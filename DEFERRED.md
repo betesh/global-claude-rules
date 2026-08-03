@@ -1,4 +1,3 @@
-- Per-model weighting in the pct/token calibration fit (`calibrate()` in `hooks/usage_common.py`):
-  weighting components by published price ratios fit better in one trial (worst residual 1.5 vs 2.1
-  points) but didn't explain the spread. Worth revisiting if readings ever arrive under a genuinely
-  different traffic mix.
+- Track which model accounts for use of each token, and estimate the total remaining credit based
+  on the sum accross all models of (model-specific-price-per-token x tokens-used-by-that-model)
+- Minimize request count per user-issued-command
