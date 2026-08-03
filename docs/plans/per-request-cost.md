@@ -3,26 +3,12 @@
 `total ≈ requests × average context`, and three terms in that product are addressable separately:
 the floor every request pays before any conversation exists, the number of requests a turn spends,
 and the payloads that edits leave behind. Measured over one window (140 requests, 10.5M tokens):
-the floor was 22.1K per request (~30% of the window), requests producing under 400 output tokens
-were 44% of all requests and 43% of context spend, and `Edit` inputs carried 746K.
-
-Phase 1 is a prerequisite for the other two: the attribution tool does not yet account for most of
-a window, so any figure the later phases quote from it would be wrong in the same direction.
-
-## Phase 1 — make the attribution honest before reading anything off it
-
-- [ ] Account for thinking, which occupies context but is not recoverable from the transcript.
-      - Transcripts persist `signature` and an empty `thinking` string, so `blocks()` scores it
-        zero; one measured session emitted 65.7K output tokens against ~21K of text and tool calls.
-      - Derive it per request as output tokens minus the text and tool-call tokens on that same
-        request, and label the row as derived, not measured, wherever it prints.
-- [ ] Re-run over a full window and record the accounted-for percentage in `usage/notes.md`.
-      - It is 45% today. If the two fixes above do not take it near the measured cache-read, the
-        remainder is a fourth term nobody has named yet; say that rather than rounding it away.
+the floor was 22.1K per request (35% of what the attribution can see), requests producing under 400
+output tokens were 44% of all requests and 43% of context spend, and `Edit` inputs carried 746K.
 
 ## Phase 2 — find what the floor is actually made of, and whether any of it is ours
 
-The floor was 22,111 / 21,907 / 22,190 tokens across three sessions — stable enough that a
+The floor was 21,905 / 22,109 / 22,166 / 22,188 tokens across four sessions — stable enough that a
 difference of a thousand tokens between two configurations is a real signal.
 
 - [ ] Measure the floor per configuration by reading the first request's context out of the
@@ -43,8 +29,8 @@ difference of a thousand tokens between two configurations is a real signal.
       directly as context by the hook.
       - Today it is an instruction to read six files: one round trip, plus six tool calls and six
         results framing ~3K of rule text that then sits in context for the rest of the session.
-      - Only pursue this if Phase 1's accounting shows the framing is a meaningful share. The rule
-        text itself is not in scope here.
+      - Only the framing is in scope, not the rule text: the saving to measure is the six calls and
+        six results, against ~3K that gets re-sent either way.
 
 ## Phase 3 — establish how much of the request count is avoidable
 

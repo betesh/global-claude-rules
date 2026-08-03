@@ -1,7 +1,7 @@
 # Usage window and context size
 
-_Several agents share one account, on a rolling 5-hour window. Hooks watch it; you log what only
-you can see, and treat context as spend._
+_Several agents share one account, on a rolling 5-hour window. Hooks watch it; treat context as
+spend._
 
 ## The hooks watch the window, not you
 
@@ -18,25 +18,40 @@ Do not reimplement them by hand: scanning transcripts yourself costs the request
 
 The log is `<rules-repo>/usage/events.jsonl` (gitignored); conclusions go in `usage/notes.md`
 (committed). Append one JSON line, never rewrite — concurrent agents share it. Tag every line with
-the `session` id the SessionStart block reports.
+`t` (local time, with a numeric UTC offset — the log is gitignored, so it never leaves the machine
+it was written on), then `kind`, then the `session` id the SessionStart block reports, then
+whatever else that kind carries — that order is what makes rows comparable at a glance.
 
-| kind | fields | when |
-|---|---|---|
-| `usage-report` | `pct`, `renewsInMin`, `agents` | the user states how much is spent and when it renews |
-| `sleep` | `untilT`, `reason` | before you wait, so another agent does not duplicate it |
+| kind | fields | written by | when |
+|---|---|---|---|
+| `usage-report` | `pct`, `renewsInMin` | the user, via `python3 usage/log-pct.py PCT [RENEWS_IN_MIN]` | a fresh reading exists — no agent or request needed |
+| `renewed` | `startedT` | the hook, automatically | the first session to notice the current boundary isn't logged yet |
+| `carried-context` | — | the hook, automatically | it gates a session's first prompt of a window for carrying too much history in |
 
-Nothing else. Token counts, request counts, when the window opened, which sessions ran — all of it
-is in the transcripts already and can be reconstructed for any past moment, so a reported
+Never write `usage-report`, `renewed`, or `carried-context` yourself — all three exist to be read,
+not appended by you. Token counts, request counts, when the window opened, which sessions ran — all
+of it is in the transcripts already and can be reconstructed for any past moment, so a reported
 percentage needs no token count taken beside it.
 
 **Ask for a reading when it would change what you do** — before a long unattended run, or anything
 that cannot resume halfway. An agent cannot read remaining credit; a user reporting it is the only
-direct measurement, and it is what calibrates every estimate. Do not ask on a cadence.
+direct measurement, and it is what calibrates every estimate. Point them at `usage/log-pct.py`
+rather than logging what they tell you yourself — it needs no agent request and guarantees the
+right format. Do not ask on a cadence.
 
 ## A declared sleep is binding
 
 Once you say you are waiting until a time, do no work until then — no tool calls, no commits, no
 "one quick edit". Each is a round trip that re-sends the whole conversation.
+
+Sleep in the foreground (a plain blocking `sleep`), never `run_in_background`. Observed here: a
+backgrounded wait's completion did not resume an idle session by itself — every agent needed an
+explicit "continue" despite the wait finishing on schedule, because the harness only surfaces a
+background task's notification on the next externally-driven turn. A foreground `sleep` blocks the
+same turn and hands control straight back when it returns, so the wait actually resolves unattended.
+When one wait outlasts a single blocking call, chain foreground `sleep` calls back to back rather
+than backgrounding — this is the wait itself, not a polling loop working around a limit, since each
+call still blocks until its own end and the session is never idle in between.
 
 If the user prompts you mid-wait, that request is already spent: answer in one turn with **zero
 tool calls**, restate when you resume, stop. A question is not permission to resume. Two things do

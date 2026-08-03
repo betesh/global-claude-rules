@@ -28,6 +28,6 @@ REPO_DIR=$(dirname -- "$SCRIPT_DIR")
 
 command -v python3 >/dev/null 2>&1 || exit 0
 
-REPO_DIR="$REPO_DIR" python3 "$SCRIPT_DIR/usage_window.py" --gate
+REPO_DIR="$REPO_DIR" python3 "$SCRIPT_DIR/usage_gate.py"
 [ $? -eq 2 ] && exit 2
 exit 0

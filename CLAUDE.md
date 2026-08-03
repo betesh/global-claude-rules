@@ -47,6 +47,7 @@ leak is the code you were working in when the rule occurred to you.
 ## Usage instrumentation
 
 `usage/events.jsonl` (gitignored) and `usage/notes.md` (committed) track what is known about the
-shared credit window; `hooks/usage_window.py` computes it. See `rules/usage-limits-and-context.md`
+shared credit window; `hooks/usage_common.py` computes it, for `hooks/usage_report.py` and
+`hooks/usage_gate.py`. See `rules/usage-limits-and-context.md`
 for what to log. Conclusions belong in `notes.md` as a description of what we know — not a dated
 log of when each thing was learned.

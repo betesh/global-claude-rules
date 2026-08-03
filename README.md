@@ -4,54 +4,59 @@
 > setup and is never ingested as an instruction.
 
 Standing instructions that apply to every repository — auto-commit, living plans,
-focused test runs, and so on. Two hooks point Claude Code at `rules/*.md`:
-`SessionStart` for the main session and `SubagentStart` for every subagent. The
-rules bind in every project, and in every agent, without per-project
-configuration.
+focused test runs, and so on. Claude Code loads `~/.claude/rules/*.md` as global
+instructions in every session, in every project, without per-project
+configuration — so this repo's rules bind wherever a symlink at that path points
+into `rules/`.
 
 ## Install
 
-Clone anywhere, then run the installer:
+Clone anywhere, then symlink the rules and skills into place — see
+[Symlinks](#symlinks) below. There is no installer for either: both are a single
+`ln -s`, and scripting a one-line command just adds a file to keep in sync.
+
+Two things still need a script, because they edit `settings.json` rather than
+just placing a symlink:
 
 ```sh
-git clone <this-repo> ~/some/path/global-rules
-~/some/path/global-rules/install.sh
+./install-usage-hook.sh      # the shared credit-window report + gate
+./hooks/install-plan-hook.sh # the /clear nudge after a plan file is written
 ```
 
-Start a new session (or `/clear`) and the rules load. Nothing else references
-the clone's location — the hook resolves its own path, and the installer records
-that absolute path in your settings.
+Each takes `--uninstall` and `--help`, backs up `settings.json` to
+`settings.json.bak` first, and is safe to re-run after moving the clone (the
+recorded hook path is absolute). Requires `python3`, used only to edit the JSON
+settings file safely.
 
-The installer:
-
-- writes a `SessionStart` and a `SubagentStart` hook into
-  `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`), preserving
-  every other setting;
-- backs the file up to `settings.json.bak` first;
-- replaces any hook a previous clone of this repo installed, so re-running it is
-  safe and idempotent.
+## Symlinks
 
 ```sh
-./install.sh              # install or update
-./install.sh --uninstall  # remove the hook, leave other settings alone
-./install.sh --help
+ln -s /path/to/this/clone/rules ~/.claude/rules
+
+mkdir -p ~/.claude/skills
+for d in /path/to/this/clone/skills/*/; do
+    ln -s "$d" ~/.claude/skills/"$(basename "$d")"
+done
 ```
 
-**If you move the clone, re-run `./install.sh`** — the recorded path is absolute.
-
-Requires `python3` (used only to edit the JSON settings file safely).
+Symlinked rather than copied, so editing the checkout takes effect without
+redoing either step. Whether a subagent (spawned via the Agent tool) also picks
+up `~/.claude/rules` the same way a main session does hasn't been confirmed here
+— check before relying on a rule binding inside one.
 
 ## Layout
 
 | Path | Loaded into sessions? | What it is |
 |------|----------------------|------------|
-| `rules/*.md` | **Yes** — every file, every session | The rules themselves |
-| `hooks/load-rules.sh` | No | Emits the rule paths as session context |
-| `hooks/usage-window.sh` + `usage_window.py` | No | Emits the credit-window state as session context |
+| `rules/*.md` | **Yes** — every file, every session, via the `~/.claude/rules` symlink | The rules themselves |
+| `skills/*` | Only when invoked | Situational instructions, via the `~/.claude/skills` symlinks |
+| `hooks/usage-window.sh` + `usage_report.py` | No | SessionStart: emits the credit-window state as session context |
+| `hooks/usage-gate.sh` + `usage_gate.py` | No | UserPromptSubmit: drops a prompt once the window is spent |
+| `hooks/usage_common.py` | No | Log/transcript logic shared by the report and gate scripts above |
 | `hooks/plan-written.py` | Only when it fires | Nudges toward `/clear` after a plan file is written whole |
-| `hooks/write-settings-hook.py` | No | Edits settings.json for both installers |
-| `install.sh` | No | Registers the rules hooks in your Claude Code settings |
+| `hooks/write-settings-hook.py` | No | Edits settings.json for both hook installers |
 | `install-usage-hook.sh` | No | Registers the usage-window hook |
+| `hooks/install-plan-hook.sh` | No | Registers the plan-written hook |
 | `usage/notes.md` | No | Committed conclusions about the credit window |
 | `usage/events.jsonl` | No | Raw usage observations, appended by agents — gitignored |
 | `README.md` | No | This file |
@@ -70,9 +75,9 @@ never be mistaken for a rule.
 
 ## The plan-written hook
 
-`install.sh` also registers a `PostToolUse` hook on `Write`. When the file written
-is under `docs/plans/`, it adds one paragraph of context: make the record durable,
-commit, then tell the user this is a good moment to `/clear`.
+`hooks/install-plan-hook.sh` registers a `PostToolUse` hook on `Write`. When the
+file written is under `docs/plans/`, it adds one paragraph of context: make the
+record durable, commit, then tell the user this is a good moment to `/clear`.
 
 That moment is when a session's context is worth least and costs most — what
 matters was just written to a file, and the conversation that produced it would
@@ -89,36 +94,6 @@ Drop a `.md` file in `rules/`. It is picked up on the next session start; no
 reinstall needed. One concern per file, project-agnostic, and short — every rule
 is read in full at the start of every session, so length is a real cost.
 
-## How it works
-
-`hooks/load-rules.sh` prints a short preamble plus the absolute path of each
-`rules/*.md` file. Claude reads the files from there. The hook lists paths rather
-than inlining rule bodies because hook context is size-limited.
-
-It is registered on two events:
-
-| Event | Matcher | Matches on | Output |
-|-------|---------|-----------|--------|
-| `SessionStart` | `startup\|resume\|clear\|compact` | session `source` | plain stdout |
-| `SubagentStart` | `*` | `agent_type` | JSON `hookSpecificOutput.additionalContext` |
-
-`SessionStart` includes `compact` so the rules are re-established after a context
-compaction rather than quietly aging out. `SubagentStart` fires once per spawned
-agent and only accepts context as JSON, which is why the installer registers it
-as `load-rules.sh --json`.
-
-To check both outputs without starting a session:
-
-```sh
-./hooks/load-rules.sh          # what the main session sees
-./hooks/load-rules.sh --json   # what a subagent sees
-```
-
-To load the rules for only some agent types, change the `SubagentStart` matcher
-from `*` to an alternation of agent names, e.g. `general-purpose|Plan`. Read-only
-agents like `Explore` arguably don't need them, at the cost of one more thing to
-keep in sync.
-
 ## The usage-window hook
 
 `usage-limits-and-context.md` asks agents to predict when shared credit runs
@@ -128,7 +103,7 @@ free:
 
 ```sh
 ./install-usage-hook.sh              # install / update
-./install-usage-hook.sh --uninstall  # remove, leaving the rules hooks alone
+./install-usage-hook.sh --uninstall  # remove, leaving the plan hook alone
 ```
 
 It reads two local sources and prints a few lines of context:
@@ -160,17 +135,17 @@ after old lines are rejected on the raw text rather than parsed.
 
 ## Caveats
 
-- **Subagents read the rules themselves.** Each spawned agent spends a few Read
-  calls on them before starting. That is the price of the rules actually binding;
-  narrow the matcher if it becomes a problem.
-- **Project settings can't override this.** The hooks are installed in user
-  settings and fire everywhere. A project that needs different behavior should
-  say so in its own `CLAUDE.md`.
+- **Whether subagents inherit `~/.claude/rules` the same way a main session
+  does is unconfirmed here** — see [Symlinks](#symlinks).
+- **Project settings can't override the usage/plan hooks.** Those two are
+  installed in user settings and fire everywhere. A project that needs
+  different behavior should say so in its own `CLAUDE.md`.
 
 ## Skills
 
 Situational rules load on demand instead of sitting in every session's
-context. `install.sh` symlinks them into the Claude skills directory.
+context — see [Symlinks](#symlinks) for how they get into the Claude skills
+directory.
 
 | skill | what it covers |
 |---|---|

@@ -69,7 +69,9 @@ def blocks(content):
         if kind == "text":
             out.append(("assistant text", len(b.get("text") or "")))
         elif kind == "thinking":
-            out.append(("thinking", len(b.get("thinking") or "")))
+            # Persisted as its signature and an empty string, so there is
+            # nothing here to measure; see the derived slot in `walk`.
+            continue
         elif kind == "tool_use":
             out.append(("tool call", len(json.dumps(b.get("input") or {}))))
         elif kind == "tool_result":
@@ -115,7 +117,9 @@ def walk(path, since):
     that followed.
     """
     floor, at_start, order, usages, timeline = 0, 0, [], {}, []
+    composed, think = {}, {}
     for line in open(path, errors="replace"):
+        key = None
         try:
             e = json.loads(line)
         except json.JSONDecodeError:
@@ -144,12 +148,28 @@ def walk(path, since):
                 # An assistant message is both a request and a set of blocks that
                 # stay in context; the marker goes before its own blocks so they
                 # are charged to the requests that follow it, not to itself.
-                timeline.append(("req", 0))
+                timeline.append(["req", 0])
+                # Thinking sits alongside those blocks and is re-sent with them,
+                # but its size is only knowable once the whole request has
+                # streamed, so reserve its place now and fill it in below.
+                think[key] = ["thinking (derived)", 0]
+                timeline.append(think[key])
             usages[key] = usage
         if e.get("type") in ("assistant", "user"):
             for label, n in blocks(message.get("content")):
                 label = "user prompt" if (e["type"] == "user" and label == "text") else label
-                timeline.append((label, n // 4))
+                timeline.append([label, n // 4])
+                if key:
+                    composed[key] = composed.get(key, 0) + n // 4
+
+    # What a request produced, less the text and tool calls it left behind, is
+    # what it thought. It is an upper bound rather than a measurement, and is
+    # labelled derived where it prints: counting blocks as characters over four
+    # undercounts, so requests that emitted no thinking at all still leave a
+    # residual here — a median of 139 tokens over 46 such requests in one
+    # session, against 533 for the 43 that did think.
+    for key, usage in usages.items():
+        think[key][1] = max(usage.get("output_tokens", 0) - composed.get(key, 0), 0)
     return floor, at_start, order, usages, timeline
 
 

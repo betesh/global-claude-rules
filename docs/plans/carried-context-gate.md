@@ -32,7 +32,7 @@ continuing will cost.
 
 ## Phase 2 — set the threshold from the measurement
 
-- [ ] Replace the `CARRY_AT` guess in `usage_window.py` with the figure Phase 1 measures, and drop
+- [ ] Replace the `CARRY_AT` guess in `usage_common.py` with the figure Phase 1 measures, and drop
       the comment marking it provisional.
 
 ## Phase 3 — confirm it saved what it claimed

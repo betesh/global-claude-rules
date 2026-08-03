@@ -28,4 +28,4 @@ REPO_DIR=$(dirname -- "$SCRIPT_DIR")
 
 command -v python3 >/dev/null 2>&1 || exit 0
 
-REPO_DIR="$REPO_DIR" python3 "$SCRIPT_DIR/usage_window.py" || exit 0
+REPO_DIR="$REPO_DIR" python3 "$SCRIPT_DIR/usage_report.py" || exit 0
