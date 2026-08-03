@@ -71,30 +71,6 @@ def blocks(content):
     return out
 
 
-def usage_lines(path):
-    """(when, usage, request key) for each assistant request in a transcript.
-
-    One request streams as several lines sharing a requestId, each carrying the
-    running totals, so the key is what lets a caller keep the last of them and
-    count the request once.
-    """
-    for line in open(path, errors="replace"):
-        if '"usage"' not in line:
-            continue
-        try:
-            e = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        usage = (e.get("message") or {}).get("usage")
-        if e.get("type") != "assistant" or not isinstance(usage, dict):
-            continue
-        try:
-            when = datetime.fromisoformat((e.get("timestamp") or "").replace("Z", "+00:00"))
-        except ValueError:
-            continue
-        yield when, usage, e.get("requestId") or e.get("uuid")
-
-
 def context_size(usage):
     """What a request sent, which is what the session was holding at that moment.
 
@@ -106,7 +82,58 @@ def context_size(usage):
             + usage.get("cache_read_input_tokens", 0))
 
 
-def carried_per_session(since):
+def transcripts(since):
+    for path in sorted(glob.glob(os.path.join(CONFIG_DIR, "projects", "*", "*.jsonl"))):
+        try:
+            if datetime.fromtimestamp(os.path.getmtime(path), timezone.utc) >= since:
+                yield path
+        except OSError:
+            continue
+
+
+def walk(path, since):
+    """One pass over a transcript: what it held at `since`, and what came after.
+
+    Returns the context size at the boundary, the request ids in order, the last
+    usage line seen for each — one request streams as several lines sharing a
+    requestId, each carrying the running totals, so counting lines counts the
+    same request several times over — and the timeline of blocks and requests
+    that followed.
+    """
+    at_start, order, usages, timeline = 0, [], {}, []
+    for line in open(path, errors="replace"):
+        try:
+            e = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        try:
+            when = datetime.fromisoformat((e.get("timestamp") or "").replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        message = e.get("message") or {}
+        usage = message.get("usage")
+        is_request = e.get("type") == "assistant" and isinstance(usage, dict)
+        if is_request and when <= since:
+            at_start = context_size(usage)
+        if when < since:
+            continue
+        if is_request:
+            key = e.get("requestId") or e.get("uuid")
+            if key not in usages:
+                order.append(key)
+                # An assistant message is both a request and a set of blocks that
+                # stay in context; the marker goes before its own blocks so they
+                # are charged to the requests that follow it, not to itself.
+                timeline.append(("req", 0))
+            usages[key] = usage
+        if e.get("type") in ("assistant", "user"):
+            for label, n in blocks(message.get("content")):
+                label = "user prompt" if (e["type"] == "user" and label == "text") else label
+                timeline.append((label, n // 4))
+    return at_start, order, usages, timeline
+
+
+def report_carried(rows, cache_read, since):
     """What each session spent on history it already held when the window opened.
 
     Context at the boundary times requests since it: every one of those requests
@@ -115,28 +142,7 @@ def carried_per_session(since):
     nothing in and scores zero, however large it has since grown — clearing it
     saves only what it just paid for.
     """
-    rows, cache_read = [], 0
-    for path in sorted(glob.glob(os.path.join(CONFIG_DIR, "projects", "*", "*.jsonl"))):
-        try:
-            if datetime.fromtimestamp(os.path.getmtime(path), timezone.utc) < since:
-                continue
-        except OSError:
-            continue
-        at_start, after = 0, {}
-        for when, usage, key in usage_lines(path):
-            if when <= since:
-                at_start = context_size(usage)
-            else:
-                after[key] = usage
-        if not after:
-            continue
-        cache_read += sum(u.get("cache_read_input_tokens", 0) for u in after.values())
-        rows.append((at_start * len(after), at_start, len(after), path))
-    return sorted(rows, reverse=True), cache_read
-
-
-def report_carried(since):
-    rows, cache_read = carried_per_session(since)
+    rows = sorted(rows, reverse=True)
     print(f"\ncarried in, per session (context at {since:%H:%M}Z × requests since)\n")
     print(f"  {'session':56s} {'at start':>9s} {'req':>5s} {'carried':>13s}  share")
     for carried, at_start, requests, path in rows:
@@ -158,47 +164,20 @@ def main():
         sys.exit("no open window in events.jsonl; pass a start time explicitly")
     print(f"window from {since:%Y-%m-%dT%H:%MZ}\n")
 
-    tally, carried, cache_read = {}, 0, 0
-    for path in sorted(glob.glob(os.path.join(CONFIG_DIR, "projects", "*", "*.jsonl"))):
-        try:
-            if datetime.fromtimestamp(os.path.getmtime(path), timezone.utc) < since:
-                continue
-        except OSError:
+    tally, carried, cache_read, rows = {}, 0, 0, []
+    for path in transcripts(since):
+        at_start, order, usages, timeline = walk(path, since)
+        requests = len(order)
+        if not requests:
             continue
-        events, first_usage = [], None
-        for line in open(path, errors="replace"):
-            try:
-                e = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            stamp = e.get("timestamp")
-            if not stamp:
-                continue
-            try:
-                when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-            except ValueError:
-                continue
-            if when < since:
-                continue
-            message = e.get("message") or {}
-            usage = message.get("usage")
-            # An assistant message is both a request and a set of blocks that stay
-            # in context; counting only the first drops every reply and tool call.
-            if e.get("type") == "assistant" and isinstance(usage, dict):
-                events.append(("req", None))
-                if first_usage is None:
-                    first_usage = usage
-                cache_read += usage.get("cache_read_input_tokens", 0)
-            if e.get("type") in ("assistant", "user"):
-                for label, n in blocks(message.get("content")):
-                    label = "user prompt" if (e["type"] == "user" and label == "text") else label
-                    events.append((label, n // 4))
-        requests = sum(1 for k, _ in events if k == "req")
-        if requests < 5 or not first_usage:
+        cache_read += sum(u.get("cache_read_input_tokens", 0) for u in usages.values())
+        rows.append((at_start * requests, at_start, requests, path))
+        if requests < 5:
             continue
 
         # Everything already in context when this session's first in-window
         # request went out, charged to every request that followed it.
+        first_usage = usages[order[0]]
         at_open = (first_usage.get("cache_read_input_tokens", 0)
                    + first_usage.get("cache_creation_input_tokens", 0))
         carried += at_open * requests
@@ -206,7 +185,7 @@ def main():
               f"{requests:>4} req, carried in {at_open:>9,}")
 
         seen = 0
-        for label, n in events:
+        for label, n in timeline:
             if label == "req":
                 seen += 1
             else:
@@ -214,8 +193,7 @@ def main():
 
     total = carried + sum(tally.values())
     print(f"\n{'source':18s} {'tokens':>14s}  share")
-    rows = [("carried in", carried)] + sorted(tally.items(), key=lambda kv: -kv[1])
-    for label, value in rows:
+    for label, value in [("carried in", carried)] + sorted(tally.items(), key=lambda kv: -kv[1]):
         if value:
             print(f"{label:18s} {value:>14,}  {100 * value / total:5.1f}%")
     print(f"{'TOTAL':18s} {total:>14,}")
@@ -223,7 +201,7 @@ def main():
         print(f"\nmeasured cache-read this window: {cache_read:,} "
               f"({100 * total / cache_read:.0f}% accounted for)")
 
-    report_carried(since)
+    report_carried(rows, cache_read, since)
 
 
 main()

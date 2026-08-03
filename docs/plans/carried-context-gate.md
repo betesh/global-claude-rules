@@ -15,14 +15,6 @@ continuing will cost.
 
 ## Phase 1 — measure what carrying costs, per session
 
-- [ ] Correct the request count in the whole-window attribution, which counts every streaming line
-      as a request instead of every `requestId`.
-      - Measured over one window: 705 lines against 368 requests, and a cache-read total of
-        87.4M against the 49.1M the deduped scan and the SessionStart hook both report. Every
-        figure the table prints is a product with that count, so all of them are inflated ~1.8x.
-      - The per-session view already dedupes; give both the same scan rather than two.
-      - The 59% carried-in baseline in `notes.md` came from the inflated count. Re-derive it in the
-        same commit, or say in `notes.md` that it is superseded.
 - [ ] Run the per-session view over a full window whose start the hook recorded itself, and record
       in `usage/notes.md`: the distribution of carried-in sizes, and how many points each cost.
       - This is what sets the gate's threshold. It must come from that run, not from reasoning —

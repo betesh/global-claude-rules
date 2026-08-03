@@ -59,18 +59,21 @@ which held to within a percent across two concurrent sessions.
 
 The question is what makes up that context, and the dominant term is **whatever was already in the
 session when the window opened**. A session that has been running for hours carries its entire
-history across the boundary and pays for all of it on every request of the new window:
+history across the boundary and pays for all of it on every request of the new window. Two sessions
+crossing one boundary carried 168k and 57k tokens in, and that history was the largest single share
+of the window's cache-read — larger than everything added during the window put together.
 
-| session | context at window open | that carried cost | share of its cache-read |
-|---|---:|---:|---:|
-| A | 168,180 | 16,986,180 | **74.0%** |
-| B | 56,769 | 6,414,897 | **38.8%** |
+**The magnitude is not settled.** Every figure it was quoted with came from a scan that counted each
+streaming transcript line as a request rather than each `requestId`, which inflated request counts
+by roughly 1.8x, and every figure in that table is a product with that count. The ordering survives
+— carried-in is still the largest term by a wide margin, and it is still an order of magnitude above
+tool output — but treat any specific percentage or token saving as unmeasured until a window whose
+boundary the hook dated itself has been run through `usage/context-cost.py`.
 
-**Carried-in context was 59% of all cache-read.** Clearing both sessions as the window opened would
-have avoided ~23.4M tokens — about **35 points**. Nothing else measured comes close.
-
-Of what is added *during* a window, the split is: tool calls ~9%, tool results ~8%, assistant
-replies ~3%, user prompts ~0.2%. So:
+Of what is added *during* a window, the split is: tool calls ~10%, tool results ~13%, assistant
+replies ~2%, user prompts ~0.2%, against carried-in at ~74%. Those five are shares of what the
+attribution can see, which is about 73% of measured cache-read; the rest is per-request overhead the
+transcripts do not record. So:
 
 - **Session lifetime is the lever, by a wide margin.** The cost of a long-lived session is not the
   work it does but the history it re-reads, and that history is charged again in full by every new
