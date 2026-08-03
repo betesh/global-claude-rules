@@ -26,29 +26,10 @@ continuing will cost.
         request falls after the boundary reports zero however large it has grown, and the carried
         total never exceeds the window's measured cache-read.
 
-## Phase 2 — gate the first prompt after a boundary
+## Phase 2 — set the threshold from the measurement
 
-- [ ] Add a carried-context check to `usage_window.py --gate`, alongside the spent-window check.
-      - Inputs, all already available: the hook payload's `session_id` and `transcript_path` on
-        stdin, and the window start `window_state` computes.
-      - Blocks when the session's first request predates the window start **and** its current
-        context is at or above the Phase 1 threshold. Both conditions, or it fires on fresh
-        sessions that merely grew large, where clearing saves nothing that was not just paid for.
-      - Exit 2 with the cost on stderr: context size, requests this session has averaged per hour,
-        and what that projects to as a share of the window if it continues. A number the user can
-        weigh beats an instruction they cannot check.
-      - Name both outs in the message: `/clear` when the next task does not depend on this
-        conversation, `/compact` when the work must continue here.
-- [ ] Make it a speed bump, not a lockout.
-      - On blocking, append a `carried-context` event tagged with the session id. A session that
-        already has one for this window is let through — re-submitting the prompt is the
-        acknowledgement, so nobody can be locked out of their own session by a bad threshold.
-      - `CLAUDE_CARRIED_CONTEXT_OK=1` skips the check entirely, for unattended runs that cannot
-        answer a prompt.
-      - The check must never block when the window start is one the log only guessed
-        (`state["opened"]`), since then every session looks like it predates the window.
-- [ ] Report carried context in the SessionStart block too, as one line, so a session that resumes
-      into a fresh window sees the number before it is blocked by it.
+- [ ] Replace the `CARRY_AT` guess in `usage_window.py` with the figure Phase 1 measures, and drop
+      the comment marking it provisional.
 
 ## Phase 3 — confirm it saved what it claimed
 

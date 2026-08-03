@@ -52,19 +52,18 @@ CONFIG_DIR = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claud
 now = datetime.now(timezone.utc)
 
 
-def hook_session_id():
-    """This session's id, from the JSON the harness pipes to a SessionStart hook.
+def hook_payload():
+    """The JSON the harness pipes to a hook: `session_id`, `transcript_path`, …
 
-    Absent when the script is run by hand, so every use of it stays optional.
+    Empty when the script is run by hand, so every use of it stays optional.
     """
     if sys.stdin.isatty():
-        return None
+        return {}
     try:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, OSError, ValueError):
-        return None
-    session_id = payload.get("session_id") if isinstance(payload, dict) else None
-    return session_id if isinstance(session_id, str) and session_id else None
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def parse_args():
@@ -80,17 +79,28 @@ def parse_args():
         help="refuse the request when the window is spent; otherwise print one estimate line",
     )
     parser.add_argument("--session", help="session id to tag anything this run appends to the log")
+    parser.add_argument("--transcript", help="transcript to weigh instead of the one on stdin")
     return parser.parse_args()
 
 
 ARGS = parse_args()
 # stdin is the hook payload only when the harness invoked us; a launcher passes --session.
-SESSION_ID = ARGS.session or (None if ARGS.sleep_seconds else hook_session_id())
+PAYLOAD = {} if ARGS.sleep_seconds else hook_payload()
+SESSION_ID = ARGS.session or PAYLOAD.get("session_id") or None
+TRANSCRIPT = ARGS.transcript or PAYLOAD.get("transcript_path") or None
 
 # The estimate at which --gate stops letting requests through. Not 100: the last
 # points of a window are worth less than the cost of discovering the ceiling by
 # being refused, and the estimate carries a percentage point or two of slack.
 GATE_AT_PCT = float(os.environ.get("CLAUDE_USAGE_GATE_PCT", "97"))
+
+# Context size at which a session that predates the window is asked to clear.
+# A GUESS, not a measurement: the one window measured so far had carriers at
+# 170k and 59k tokens against non-carriers at zero, and its boundary came from
+# readings since discarded. What would settle it is the distribution of
+# carried-in sizes from `usage/context-cost.py` over a window the hook dated —
+# pick the knee below which clearing saves less than the interruption costs.
+CARRY_AT = int(os.environ.get("CLAUDE_CARRIED_CONTEXT_TOKENS", "50000"))
 
 # How far past a derived renewal to aim when waiting one out. See wake_at.
 WAKE_MARGIN = timedelta(seconds=60)
@@ -410,6 +420,84 @@ def window_state(events):
     }
 
 
+def session_carry(path, window_start):
+    """(context now, first request, requests since the window opened) for one
+    transcript, or None when it has no requests at all.
+
+    Context is what the newest request sent — input plus both cache figures.
+    Output tokens are not context: they are produced by the request rather than
+    carried into it, and they reach the next one inside its cached prefix.
+    """
+    first = None
+    context = 0
+    since = set()
+    try:
+        with open(path, errors="replace") as f:
+            for line in f:
+                if '"usage"' not in line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                usage = (entry.get("message") or {}).get("usage")
+                when = parse_time(entry.get("timestamp"))
+                if entry.get("type") != "assistant" or not isinstance(usage, dict) or not when:
+                    continue
+                if first is None or when < first:
+                    first = when
+                context = (usage.get("input_tokens") or 0) \
+                    + (usage.get("cache_creation_input_tokens") or 0) \
+                    + (usage.get("cache_read_input_tokens") or 0)
+                if when >= window_start:
+                    since.add(entry.get("requestId") or entry.get("uuid"))
+    except OSError:
+        return None
+    return (context, first, len(since)) if first else None
+
+
+def carried_reason(events, state):
+    """Why this session should clear before spending the window, or None.
+
+    Both conditions are required. A session that merely grew large during this
+    window carries nothing across the boundary: everything in it was paid for at
+    cache-write prices already, and clearing saves only the re-reads it has left.
+    The saving is the history times the requests still to come, which is why the
+    boundary is the moment worth interrupting and no other moment is.
+    """
+    if os.environ.get("CLAUDE_CARRIED_CONTEXT_OK") == "1" or not TRANSCRIPT:
+        return None
+    # A start the log only guessed is this session's own start time, so every
+    # session looks older than the window and every one of them would be blocked.
+    if state["opened"]:
+        return None
+    carry = session_carry(TRANSCRIPT, state["window_start"])
+    if not carry:
+        return None
+    context, first, requests = carry
+    if first >= state["window_start"] or context < CARRY_AT:
+        return None
+    # Re-submitting is the acknowledgement. Nobody is locked out of their own
+    # session by a threshold that turns out to be wrong.
+    for event in events:
+        if (event.get("kind") == "carried-context" and event.get("session") == SESSION_ID
+                and event["_t"] >= state["window_start"]):
+            return None
+
+    hours = max((now - state["window_start"]).total_seconds() / 3600, 0.01)
+    per_hour = requests / hours
+    remaining = max((state["renews"] - now).total_seconds() / 3600, 0)
+    projected = context * per_hour * remaining
+    cost = f"~{projected / 1e6:.1f}M tokens" if projected else "nothing further"
+    if state["per_pct"]:
+        cost += f", about {projected / state['per_pct']:.0f}% of the window"
+    return (
+        f"this session predates the window and is holding {context:,} tokens of history. "
+        f"Every request re-sends all of it: at {per_hour:.0f} requests/hour over the "
+        f"{duration(state['renews'] - now)} left, continuing here spends {cost} on history alone."
+    )
+
+
 def gate_reason(state):
     """Why this request must not be sent, or None to let it through.
 
@@ -469,6 +557,18 @@ def run_gate(events, state):
             f"Credit is out: {why}. Not sending this request. The window renews at "
             f"{stamp(until)}, {duration(until - now)} from now — wait until then, or set "
             f"CLAUDE_USAGE_GATE_PCT above {GATE_AT_PCT:.0f} to override.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    carried = carried_reason(events, state)
+    if carried:
+        append_event({"kind": "carried-context", "note": "gated the first prompt of the window"})
+        print(
+            f"{carried} Use /clear if the next task does not depend on this conversation, or "
+            "/compact if the work must continue here. To keep it anyway, send the prompt again — "
+            "this asks once per window — or set CLAUDE_CARRIED_CONTEXT_OK=1 for a run that "
+            "cannot answer a prompt.",
             file=sys.stderr,
         )
         sys.exit(2)
@@ -536,6 +636,16 @@ def main():
             out.append(f"  models   {mix} — models are not priced alike, so this total is a mix")
     else:
         out.append("  spent    no transcript traffic recorded in this window yet")
+
+    # A resumed session sees what it is carrying before the next prompt is gated
+    # on it, rather than being surprised by the refusal.
+    carry = session_carry(TRANSCRIPT, window_start) if TRANSCRIPT and not state["opened"] else None
+    if carry and carry[1] < window_start and carry[0]:
+        gated = " — at or above that, the next prompt asks you to clear" if carry[0] >= CARRY_AT else ""
+        out.append(
+            f"  carried  this session predates the window and holds {carry[0]:,} tokens of "
+            f"history, re-sent by every request (threshold {CARRY_AT:,}{gated})"
+        )
 
     last, per_pct = state["last"], state["per_pct"]
 

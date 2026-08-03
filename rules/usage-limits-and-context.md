@@ -8,7 +8,8 @@ you can see, and treat context as spend._
 `install-usage-hook.sh` installs both halves, and neither costs a request:
 
 - **SessionStart** prints where the window stands at the top of your context.
-- **UserPromptSubmit** refuses the prompt outright when the window is spent, so nothing is sent.
+- **UserPromptSubmit** refuses the prompt outright, so nothing is sent, when the window is spent or
+  this session is carrying a large history into a window it did not open. Re-sending it accepts.
 
 If no window block appears at session start, they are not installed here and nothing is watching.
 Do not reimplement them by hand: scanning transcripts yourself costs the request you were saving.
