@@ -74,13 +74,17 @@ def main():
 
     # A resumed session sees what it is carrying before the next prompt is gated
     # on it, rather than being surprised by the refusal.
-    carry = uc.session_carry(transcript, window_start) if transcript and not state["opened"] else None
-    if carry and carry[1] < window_start and carry[0]:
-        gated = " — at or above that, the next prompt asks you to clear" if carry[0] >= uc.CARRY_AT else ""
-        out.append(
-            f"  carried  this session predates the window and holds {carry[0]:,} tokens of "
-            f"history, re-sent by every request (threshold {uc.CARRY_AT:,}{gated})"
-        )
+    carry = uc.session_carry(transcript) if transcript else None
+    if carry:
+        context, last, _first = carry
+        idle = (uc.now - last).total_seconds() / 60
+        if idle >= uc.CACHE_TTL_MINUTES and context:
+            gated = " — at or above that, the next prompt asks you to clear" if context >= uc.CARRY_AT else ""
+            out.append(
+                f"  carried  this session has been idle {uc.duration(uc.now - last)}, past the "
+                f"prompt-cache TTL, and holds {context:,} tokens of history (threshold "
+                f"{uc.CARRY_AT:,}{gated})"
+            )
 
     last, per_pct = state["last"], state["per_pct"]
 

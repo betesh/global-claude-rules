@@ -46,12 +46,21 @@ now = datetime.now().astimezone()
 # of slack.
 GATE_AT_PCT = float(os.environ.get("CLAUDE_USAGE_GATE_PCT", "97"))
 
-# Context size at which a session that predates the window is asked to clear.
-# A GUESS, not a measurement: the one window measured so far had carriers at
-# 170k and 59k tokens against non-carriers at zero, and its boundary came from
-# readings since discarded. What would settle it is the distribution of
-# carried-in sizes from `usage/context-cost.py` over a window the hook dated —
-# pick the knee below which clearing saves less than the interruption costs.
+# Below this idle gap the prompt cache is confirmed still warm (a 53.8-minute
+# gap left cache-read intact); at or above it every observed gap has come back
+# with cache-read reset and a cache-write ≈ the whole conversation (three
+# sessions, independently, plus two more from the same idle stretch: 141.3 and
+# 146.3 minutes). The true crossing is somewhere below this; narrower brackets
+# go in usage/notes.md as they're observed.
+CACHE_TTL_MINUTES = float(os.environ.get("CLAUDE_CACHE_TTL_MINUTES", "141"))
+
+# Context size at which a session idle past the TTL above is asked to clear.
+# Still a guess: two genuine TTL crossings measured directly from transcripts
+# (141 and 146-minute idle gaps) carried 231,467 and 71,903 tokens — both
+# comfortably above this default, so it isn't contradicted, but nothing
+# measured yet sits near the actual knee below which clearing saves less than
+# the interruption costs. What would settle it is the distribution of
+# carried-in sizes from `usage/context-cost.py` at real TTL crossings.
 CARRY_AT = int(os.environ.get("CLAUDE_CARRIED_CONTEXT_TOKENS", "50000"))
 
 
@@ -367,17 +376,16 @@ def window_state(events):
     }
 
 
-def session_carry(path, window_start):
-    """(context now, first request, requests since the window opened) for one
-    transcript, or None when it has no requests at all.
+def session_carry(path):
+    """(context now, timestamp of the last request, timestamp of the first) for
+    one transcript, or None when it has no real request at all.
 
     Context is what the newest request sent — input plus both cache figures.
     Output tokens are not context: they are produced by the request rather than
     carried into it, and they reach the next one inside its cached prefix.
     """
-    first = None
+    first = last = None
     context = 0
-    since = set()
     try:
         with open(path, errors="replace") as f:
             for line in f:
@@ -401,9 +409,9 @@ def session_carry(path, window_start):
                     continue
                 if first is None or when < first:
                     first = when
-                context = request_context
-                if when >= window_start:
-                    since.add(entry.get("requestId") or entry.get("uuid"))
+                if last is None or when >= last:
+                    last = when
+                    context = request_context
     except OSError:
         return None
-    return (context, first, len(since)) if first else None
+    return (context, last, first) if first else None

@@ -10,8 +10,8 @@ already paid for, so a rule telling it to stop cannot un-spend one.
 
 Exit codes are the whole interface:
 
-  2  credit is gone, or this session should clear before spending the window;
-     the harness drops the prompt and shows our stderr
+  2  credit is gone, or this session should clear before paying for a cache
+     rewrite; the harness drops the prompt and shows our stderr
   0  send it — stdout, if any, becomes context for this turn
 
 Only a deliberate 2 blocks. Any other failure — a crash, a missing python, a
@@ -55,45 +55,48 @@ def gate_reason(state):
     )
 
 
-def carried_reason(events, state, session_id, transcript):
-    """Why this session should clear before spending the window, or None.
+def carried_reason(events, session_id, transcript):
+    """Why this session should clear before paying for a full cache rewrite, or
+    None.
 
-    Both conditions are required. A session that merely grew large during this
-    window carries nothing across the boundary: everything in it was paid for at
-    cache-write prices already, and clearing saves only the re-reads it has left.
-    The saving is the history times the requests still to come, which is why the
-    boundary is the moment worth interrupting and no other moment is.
+    Both conditions are required. A session idle less than the TTL still has a
+    warm cache, so its next request is a cheap cache-read regardless of size —
+    clearing it would only add the interruption with no saving behind it. A
+    session that simply grew large while staying continuously active has no
+    idle gap at all, so the rewrite isn't coming either. Only a session that is
+    both idle past the TTL and big enough to matter is about to pay for the
+    rewrite whether or not it clears, which is what makes that moment free to
+    interrupt.
     """
     if os.environ.get("CLAUDE_CARRIED_CONTEXT_OK") == "1" or not transcript:
         return None
-    # A start the log only guessed is this session's own start time, so every
-    # session looks older than the window and every one of them would be blocked.
-    if state["opened"]:
-        return None
-    carry = uc.session_carry(transcript, state["window_start"])
+    carry = uc.session_carry(transcript)
     if not carry:
         return None
-    context, first, requests = carry
-    if first >= state["window_start"] or context < uc.CARRY_AT:
+    context, last, _first = carry
+    idle = (uc.now - last).total_seconds() / 60
+    if idle < uc.CACHE_TTL_MINUTES or context < uc.CARRY_AT:
         return None
-    # Re-submitting is the acknowledgement. Nobody is locked out of their own
-    # session by a threshold that turns out to be wrong.
+    # Re-submitting is the acknowledgement: that request lands in the
+    # transcript and moves `last` forward, so the same idle crossing can never
+    # ask twice. Nobody is locked out of their own session by a threshold that
+    # turns out to be wrong.
     for event in events:
-        if (event.get("kind") == "carried-context" and event.get("session") == session_id
-                and event["_t"] >= state["window_start"]):
+        if (event.get("kind") == "cache-expired" and event.get("session") == session_id
+                and event["_t"] >= last):
             return None
 
-    hours = max((uc.now - state["window_start"]).total_seconds() / 3600, 0.01)
-    per_hour = requests / hours
-    remaining = max((state["renews"] - uc.now).total_seconds() / 3600, 0)
-    projected = context * per_hour * remaining
-    cost = f"~{projected / 1e6:.1f}M tokens" if projected else "nothing further"
-    if state["per_pct"]:
-        cost += f", about {projected / state['per_pct']:.0f}% of the window"
     return (
-        f"this session predates the window and is holding {context:,} tokens of history. "
-        f"Every request re-sends all of it: at {per_hour:.0f} requests/hour over the "
-        f"{uc.duration(state['renews'] - uc.now)} left, continuing here spends {cost} on history alone."
+        f"this session has been idle {uc.duration(uc.now - last)}, longer than the "
+        f"~{uc.CACHE_TTL_MINUTES:.0f}-minute prompt-cache TTL, and is holding {context:,} tokens of "
+        "history. The next request pays a full cache rewrite of roughly that many tokens to "
+        "re-establish what a cache-read would otherwise cover far more cheaply — clearing now "
+        "costs nothing extra, since that rewrite is coming either way. Before telling the user "
+        "it is safe to /clear: check `git status` in every repo touched this session, not just "
+        "the working directory; name any instruction the user gave that generalizes beyond this "
+        "project and belongs in a rule or skill rather than being re-explained next time; and "
+        "save anything meeting this project's own memory criteria that was learned this session "
+        "and never written down."
     )
 
 
@@ -119,13 +122,13 @@ def main():
         )
         sys.exit(2)
 
-    carried = carried_reason(events, state, session_id, transcript)
+    carried = carried_reason(events, session_id, transcript)
     if carried:
-        uc.append_event(session_id, {"kind": "carried-context"})
+        uc.append_event(session_id, {"kind": "cache-expired"})
         print(
             f"{carried} Use /clear if the next task does not depend on this conversation, or "
             "/compact if the work must continue here. To keep it anyway, send the prompt again — "
-            "this asks once per window — or set CLAUDE_CARRIED_CONTEXT_OK=1 for a run that "
+            "this asks once per idle crossing — or set CLAUDE_CARRIED_CONTEXT_OK=1 for a run that "
             "cannot answer a prompt.",
             file=sys.stderr,
         )

@@ -49,3 +49,14 @@ one-time cost on top of steady per-turn growth, and why cache-write (1.6% of tok
 bursts. One clean instance: the same idle stretch that let a credit window lapse also aged out
 three sessions' caches at once — one `renewed` + two `carried-context` events within a minute of
 each other were one real-world gap, not three independent signals.
+
+## Carried-in size at real TTL crossings
+
+Two of the three `carried-context` firings recorded so far were genuine TTL crossings — idle gaps
+of 141.3 and 146.3 minutes, read directly from the transcripts, matching the bracket above — and
+carried 231,467 and 71,903 tokens respectively. The third (idle gap 0.24 minutes) was not a TTL
+crossing at all: it fired only because that session's very first request predated the window
+boundary, with no idle gap anywhere near it, which is why that trigger now gates on the idle gap
+itself rather than on where a session's history sits relative to the window. Both genuine points
+sit well above the 50,000-token `CARRY_AT` default, so it isn't contradicted, but two points can't
+locate a knee — more real crossings, via `usage/context-cost.py`, are needed before moving it.
