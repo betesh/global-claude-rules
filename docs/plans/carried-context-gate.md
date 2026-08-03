@@ -22,6 +22,10 @@ continuing will cost.
       - Wait for a window the hook dated. Earlier figures were measured against boundaries derived
         from readings since discarded as unreliable, so a run against one of those is not evidence
         and cannot be used to check this one.
+      - Wait also for a window at least one session spanned. A window every session was started
+        inside has no carriers by construction, so the view correctly reports zero for all of them
+        and there is no distribution to read a threshold off. Check that first; if every row is
+        zero, the window is not the measurement, and the next boundary is.
       - What the view must satisfy, independent of any remembered figure: a session whose first
         request falls after the boundary reports zero however large it has grown, and the carried
         total never exceeds the window's measured cache-read.
