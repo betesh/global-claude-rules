@@ -1,13 +1,13 @@
 # Stop sessions from carrying context across a window boundary
 
 Cache-read is 97–98% of every window, and `total ≈ requests × average context`. The largest single
-term in that average is history a session already held before the window opened: measured at 59% of
-all cache-read in one window, worth ~35 points, against ~9% for tool calls and ~8% for tool results.
-Nothing else measured is close.
+term in that average is history a session already held before the window opened — larger than tool
+calls, tool results and replies together. How much larger is what Phase 1 measures; the ordering is
+what makes it the lever worth building on.
 
-The saving is entirely a matter of *when* a session is cleared. Clearing a 250k-token session that
-then runs a hundred more requests saves millions of tokens; clearing at an arbitrary moment saves
-almost nothing. The one moment with the most requests still ahead of it is the window boundary — and
+The saving is entirely a matter of *when* a session is cleared. Clearing a session holding a
+hundred thousand tokens that then runs a hundred more requests saves millions of tokens; clearing at
+an arbitrary moment saves almost nothing. The one moment with the most requests still ahead of it is the window boundary — and
 that is a moment a hook can detect for free, while nobody watching a session can.
 
 So: refuse the first prompt a large session sends into a window it did not open, and say what
@@ -33,16 +33,16 @@ continuing will cost.
 
 ## Phase 3 — confirm it saved what it claimed
 
-- [ ] Over the first two window boundaries after Phase 2 lands, record in `usage/notes.md`: how
+- [ ] Over the first two window boundaries the gate is live for, record in `usage/notes.md`: how
       often it fired, how often the user cleared versus overrode, and the window's carried-in share
-      measured by the Phase 1 view against the 59% baseline.
+      against the baseline Phase 1 recorded.
       - A drop in carried-in share that does not show up as fewer tokens per percent means the
         saving went into more requests instead; say so rather than claiming the win.
 
 ## Success criteria
 
-- Carried-in context, measured by the Phase 1 view, is a smaller share of window cache-read than
-  the 59% baseline, over at least two boundaries.
+- Carried-in context, measured by the per-session view, is a smaller share of window cache-read
+  than the baseline Phase 1 records, over at least two boundaries.
 - No session was ever prevented from continuing: every block was resolvable by re-submitting.
 
 ## Out of scope
