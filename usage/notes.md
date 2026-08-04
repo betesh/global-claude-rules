@@ -20,7 +20,7 @@ ends. Readings toward goal 1 are in `usage/events.jsonl` (`usage-report` and `re
 |---|---|---|
 | Given that `per_pct` vary ~40% window to window, how many data point for the current window is enough to model per_pct for the remainder of the window? | see "Within-window convergence" below: no small, fixed count is reliable | readings taken only while every agent on the machine is idle, to see whether that removes the regime-shift noise |
 | Where's the `CARRY_AT` knee (below which clearing isn't worth the interruption)? | 4 real TTL crossings, 71,903–231,467 tokens carried — all far above the 50,000 default | a crossing that carries less context, to bracket the knee from below |
-| Is `CHECKPOINT_AT`'s 50,000 default right? | 1 correlated `cleared` outcome so far | nudge→clear pairs to accumulate |
+| Is `CHECKPOINT_AT`'s 50,000 default right? | 4 correlated `cleared` outcomes now (nudge_age_min 0.9–4.7 — user cleared within minutes every time), contexts 71,675–113,950 | all 4 nudges fired at 50,000; zero data below that line and no ignored nudge yet, so this confirms nudging *works* at this range but not that 50,000 is the *right* line — need a firing at a different threshold, or an ignored nudge, to find the knee |
 | Is `MARGIN_CALLS=5` the right tool-gate headroom? | 1 forced trial: denied at `calls_remaining ≈ 1.0`, ahead of the prompt gate | an unforced, natural ceiling crossing |
 
 ## Calibration: tokens-per-percent by window
