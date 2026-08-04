@@ -1,0 +1,2 @@
+- [ ] checkpoint_stop.py's docstring still points at docs/plans/checkpoint-before-clear.md, which no longer exists
+- [ ] Audit for any other code, comments, files and documentation that are obsolete
