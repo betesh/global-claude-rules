@@ -6,13 +6,6 @@ and the payloads that edits leave behind. Measured over one window (140 requests
 the floor was 22.1K per request (35% of what the attribution can see), requests producing under 400
 output tokens were 44% of all requests and 43% of context spend, and `Edit` inputs carried 746K.
 
-## Phase 1
-- [ ] Generate a convenience script that uses what we know about token-to-% ratio and returns whether
-      we've already exceeded GATE_AT_PCT since the most recent renewal. It should print current % usage (estimated, based on known
-      token usage) and then exit 0 if we haven't exceeded GATE_AT_PCT and 1 if we have.
-      The last renewal wasn't necessarily logged. If it's been > 5 hours since the last logged renewal,
-      then current % usage is 0.
-
 ## Phase 2 — find what the floor is actually made of, and whether any of it is ours
 
 The floor was 21,905 / 22,109 / 22,166 / 22,188 tokens across four sessions — stable enough that a
