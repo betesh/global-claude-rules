@@ -57,9 +57,13 @@ a one-time cost ≈ everything carried forward — why cache-write arrives in bu
 session continuously active across the 2026-08-04T10:14:17-06:00 window boundary (last request 4
 min before it, next 4 min after — nowhere near the TTL) shows `cache_read` climbing straight through
 without a reset (356,306 → 356,797) and a normal small `cache_write` (1,396, in line with ordinary
-per-turn growth, not a whole-conversation rewrite). The window boundary is a construct this repo's
-own tooling invented for budget tracking; Anthropic's prompt cache runs on its own idle-gap TTL
-entirely independent of it.
+per-turn growth, not a whole-conversation rewrite). The window itself is real — Anthropic blocks the
+account once its quota within a rolling 5 hours is spent, for whatever's left of those 5 hours from
+when the block started (hit 100% at 1h in and the block runs the remaining ~4h; hit it at 4h59m and
+it's ~1 minute, not necessarily enough on its own to cross the cache TTL either) — but it and the
+prompt-cache TTL are simply two unrelated mechanisms: this repo's tooling only estimates where the
+window's boundaries fall, since Anthropic exposes no direct token count, and that boundary crossing
+has no bearing on the separate, idle-gap-based cache.
 
 `CARRY_AT` in `hooks/usage_common.py` (default 50,000) is still a guess. Four genuine TTL crossings
 measured directly from transcripts so far, all well above it:
