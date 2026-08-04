@@ -28,9 +28,10 @@ whatever else that kind carries — that order is what makes rows comparable at 
 | `renewed` | `startedT` | the hook, automatically | the first session to notice the current boundary isn't logged yet |
 | `cache-expired` | — | the hook, automatically | a session idle past the prompt-cache TTL resumes holding enough context to be worth clearing |
 | `checkpoint-nudged` | `context` | the hook, automatically | a continuously-active session (no idle gap) crosses the same context threshold |
+| `cleared` | `context`, `nudge_kind`, `nudge_age_min` | the hook, automatically | a session's `SessionStart` fires with source `clear` — links the `/clear` back to whichever nudge preceded it, if any |
 
-Never write `usage-report`, `renewed`, `cache-expired`, or `checkpoint-nudged` yourself — all four
-exist to be read, not appended by you. Token counts, request counts, when the window opened, which
+Never write `usage-report`, `renewed`, `cache-expired`, `checkpoint-nudged`, or `cleared` yourself —
+all five exist to be read, not appended by you. Token counts, request counts, when the window opened, which
 sessions ran — all
 of it is in the transcripts already and can be reconstructed for any past moment, so a reported
 percentage needs no token count taken beside it.

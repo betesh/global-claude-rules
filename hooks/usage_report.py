@@ -8,6 +8,13 @@ so every line this writes is tagged with the session that wrote it.
 Also logs the window's boundary when the log does not already know it — the
 one place that happens, since a fresh SessionStart is the only invocation that
 runs once per session rather than once per prompt.
+
+Also logs a `cleared` event when this SessionStart fires with source `clear`:
+neither `cache-expired` nor `checkpoint-nudged` records what happened after the
+nudge, so there was no way to tell whether either threshold's interruption was
+worth it. This links a `/clear` back to whichever nudge preceded it (if any)
+and the context size right before it, so a later pass can compare what
+continuing would have cost against what clearing did.
 """
 
 import argparse
@@ -24,6 +31,25 @@ def parse_args():
     return parser.parse_args()
 
 
+def clear_outcome(events, session_id):
+    """(nudge kind, minutes since it fired) for the most recent `cache-expired`
+    or `checkpoint-nudged` event on this session, or (None, None) when nothing
+    nudged it.
+
+    There is no way to know a `/clear` was a direct response to a given nudge
+    rather than an unrelated habit — only how stale the connection is, which is
+    what the minutes are for; a later pass can decide how much lag still counts.
+    """
+    best = None
+    for event in events:
+        if event.get("kind") in ("cache-expired", "checkpoint-nudged") and event.get("session") == session_id:
+            if best is None or event["_t"] > best["_t"]:
+                best = event
+    if not best:
+        return None, None
+    return best["kind"], (uc.now - best["_t"]).total_seconds() / 60
+
+
 def main():
     args = parse_args()
     payload = uc.hook_payload()
@@ -38,6 +64,17 @@ def main():
     # rest of that session — this is the one call site that runs once per session.
     if state["unlogged"]:
         uc.log_boundary(session_id, state["window_start"])
+
+    if payload.get("source") == "clear" and session_id:
+        carry = uc.session_carry(transcript) if transcript else None
+        nudge_kind, since_min = clear_outcome(events, session_id)
+        cleared = {"kind": "cleared"}
+        if carry and carry[0]:
+            cleared["context"] = carry[0]
+        if nudge_kind:
+            cleared["nudge_kind"] = nudge_kind
+            cleared["nudge_age_min"] = round(since_min, 1)
+        uc.append_event(session_id, cleared)
 
     out = []
 

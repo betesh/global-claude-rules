@@ -17,9 +17,10 @@ CHECKPOINT_AT starts equal to CARRY_AT (usage_common.py) as a placeholder, not
 a measurement: CARRY_AT was picked for a session that has already gone idle,
 and this trigger fires on one that never does, so nothing yet confirms the two
 belong at the same number. Firing logs the context size alongside
-`checkpoint-nudged`, which is what a future pass needs to pick this threshold
-from observed frequency instead of the borrowed ratio
-(docs/plans/checkpoint-before-clear.md).
+`checkpoint-nudged`; a later `cleared` event (usage_report.py, logged when a
+session's SessionStart fires with source `clear`) links back to whichever
+nudge preceded it, which is what judging a threshold by its actual outcome —
+not just how often it fires — needs.
 
 Never fails a turn: any error exits 0 with no output.
 """
