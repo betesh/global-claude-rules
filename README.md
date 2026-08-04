@@ -69,8 +69,12 @@ never be mistaken for a rule.
 | File | Rule |
 |------|------|
 | `auto-commit.md` | Commit each completed task immediately, without being asked; only your own changes |
-| `run-focused-tests.md` | Iterate on one test file; run the full suite once before committing |
+| `chain-dependent-shell-steps.md` | Chain a shell step that only consumes the previous command's output into one call, not a second round trip |
 | `git-c-not-cd.md` | Target other repos with `git -C DIR`, never `cd DIR && git` |
+| `measure-before-recording.md` | Only write a number into code, docs, or a plan once you've measured it, under stated conditions — not reasoned it out |
+| `no-interactive-editing.md` | Consolidate multi-line edits to one file into a single write/edit call, not iterative tool calls |
+| `no-plan-refs-in-code.md` | Don't cite a plan, phase, or checklist item from code, docs, or test names — state the reason itself |
+| `run-focused-tests.md` | Iterate on one test file; run the full suite once before committing |
 | `usage-limits-and-context.md` | Pool what agents learn about the shared credit window in `usage/`; treat context size as spend |
 
 ## The checkpoint-stop hook
@@ -176,7 +180,7 @@ prompt outright rather than spend a request against a window already spent.
 
 - **Whether subagents inherit `~/.claude/rules` the same way a main session
   does is unconfirmed here** — see [Symlinks](#symlinks).
-- **Project settings can't override these hooks.** All four are installed in
+- **Project settings can't override these hooks.** All five are installed in
   user settings and fire everywhere. A project that needs different behavior
   should say so in its own `CLAUDE.md`.
 

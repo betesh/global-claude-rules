@@ -17,7 +17,7 @@ Do not skip committing rule edits because they sit outside the working directory
 
 - One concern per file, in `rules/`, as `.md`. The filename is the rule's identifier; other rules
   cite it by filename.
-- Nothing outside `rules/` is loaded. `README.md`, `install.sh`, `hooks/`, and this file are
+- Nothing outside `rules/` is loaded. `README.md`, `install-hooks.sh`, `hooks/`, and this file are
   project files — do not write behavioral instructions into them expecting to be bound.
 - **Every file in `rules/` is re-read on every request of every session.** Measured at roughly
   **0.4 points of a credit window per 1,000 tokens**, more when several agents run. Adding a rule
