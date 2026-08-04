@@ -115,39 +115,59 @@ Every *completed* window logged in `events.jsonl`, summed directly from transcri
 `scan_transcripts` used everywhere else) rather than read off `usage-report` pct — those readings
 don't reliably land right at the boundary, so a transcript sum is the more exact number:
 
-| window | start | tokens spent | requests | sessions touched | last token used |
-|---|---|---:|---:|---:|---|
-| A | 08-03 14:11 | 70,859,292 | 425 | 54 | 3h20m in (67% of the window) |
-| B | 08-03 19:12 | 61,929,136 | 544 | 46 | 3h42m in (74% of the window) |
-| C | 08-04 00:13 | 82,266,244 | 391 | 33 | 2h49m in (56% of the window) |
-| D | 08-04 05:14 | 65,889,854 | 408 | 15 | 5h00m in (100% of the window) |
+| window | start | tokens spent | requests | sessions touched | last token used | exhausted? |
+|---|---|---:|---:|---:|---|---|
+| A | 08-03 14:11 | 70,859,292 | 425 | 54 | 3h20m in (67% of the window) | yes |
+| B | 08-03 19:12 | 61,929,136 | 544 | 46 | 3h42m in (74% of the window) | yes |
+| C | 08-04 00:13 | 82,266,244 | 391 | 33 | 2h49m in (56% of the window) | yes |
+| D | 08-04 05:14 | 65,889,854 | 408 | 15 | 5h00m in (100% of the window) | **no** |
 
-Mean 70.2M, range 61.9M–82.3M (±7.6M, ~11% — one standard deviation). That's a much tighter band
-than the `per_pct` swings above (~40% window to window), which fits the user's account that most of
-these windows ran to exhaustion rather than being paced — a token-denominated ceiling that stayed
-roughly put while the pct-to-token slope moved around underneath it. Window E (started 08-04 10:14)
-is still open and excluded from the average; it stood at 75.4M tokens over 487 requests after 1h18m
-elapsed, last token at 11:32.
+`exhausted?` is the user's own account of which windows they ran out of credit in, not something
+derived from the scan — it's the ground truth the rest of this section is checked against.
 
-**"Last token used" answers whether a window was actually burned out or just ended.** A, B, and C
-all stopped spending well before their 5-hour mark (56–74%) and then show no further tokens until
-the *next* window's first request — the gap in between is exactly the idle-until-renewal pattern a
-hard quota cap produces, not pacing. A and C are directly confirmed by their own last `usage-report`
-reading landing right next to the stop (A: 98% at 17:29, 2 min before its last token; C: 97% at
-02:56, 7 min before its last token). B's last reading (60% at 22:05) is 49 minutes before its last
-token at 22:54 — the same idle-until-renewal shape, but unconfirmed: a jump from 60% to exhaustion in
-49 minutes is plausible at the rates measured elsewhere, just not read directly. D breaks the pattern
-entirely: its last token lands right at the 5h00m boundary with no idle gap before it, and its last
-reading was only 68% eight minutes before the window ended — D looks like continuous work that was
-still running when the window happened to roll over, not a window that hit a cap.
+**"Last token used" predicts it correctly.** A, B, C all stopped spending well before their 5-hour
+mark (56–74%) and then show no further tokens until the *next* window's first request — that gap is
+the idle-until-renewal shape a hard cap produces, and all three are confirmed exhausted. D's last
+token lands right at the 5h00m boundary with no idle gap before it — continuous work that was still
+running when the window happened to roll over — and it's the one confirmed *not* exhausted. Directly
+corroborated for A and C by a `usage-report` reading next to the stop (A: 98% two minutes before its
+last token; C: 97% seven minutes before). B's last reading (60%, 49 minutes before its last token)
+doesn't confirm it as tightly, but the shape and the ground truth agree regardless.
+
+**Raw token totals do not order the same way exhaustion does — the first sign the cap isn't a flat
+token count.** D spent *more* raw tokens (65.9M) than B did before B hit its cap (61.9M), yet D
+didn't exhaust. So excluding D, the three confirmed-exhausted windows give mean 71.7M, range
+61.9M–82.3M (±8.3M, ~12% — one standard deviation) as the token-count estimate of the cap, but D's
+65.9M sitting *inside* that range while not exhausting means token count alone can't be what the cap
+is measured in.
+
+A cost-weighted total resolves the ordering, though the weights are a guess, not a measurement: using
+published list-price ratios for this token type relative to base input (cache-write ×1.25, cache-read
+×0.1, output ×5 — not verified against whatever this plan's cap actually charges) —
+
+| window | weighted total | exhausted? |
+|---|---:|---|
+| C | 12.70M | yes |
+| A | 11.40M | yes |
+| B | 10.68M | yes |
+| D | 10.07M | **no** |
+
+— and now D sits *below* all three exhausted windows instead of inside their range, right under B's
+10.68M. That reordering is consistent with a cost-denominated cap somewhere around 10.7M–12.7M
+(weighted) that D simply hadn't reached before its 5 hours ran out. What would confirm this over the
+guessed weights: more non-exhausted windows to see whether their weighted totals keep landing below
+every exhausted one, or the actual pricing ratios this plan's cap uses, if that's ever published.
 
 Conditions: every transcript on the machine, across all 4 projects — this is an account-wide window,
 not a per-repo one. 100% `claude-sonnet-5` in every window, so model mix isn't hiding in this number.
 Covers back to the start of `events.jsonl`: its first line is window A's own `renewed` record, so
-there's no earlier window this log can reconstruct.
+there's no earlier window this log can reconstruct. Window E (started 08-04 10:14) is still open and
+excluded from both tables; it stood at 75.4M raw tokens over 487 requests after 1h18m elapsed, last
+token at 11:32.
 
-Four points isn't enough to call this converged, but it's a second, independent way to estimate the
-account's real cap alongside the per_pct calibration above, and worth widening as more windows close.
+Four points — three exhausted, one not — isn't enough to confirm either the token-count range or the
+cost-weighted reordering, but the weighted version is the one worth extending: the next non-exhausted
+window is the test of whether it lands below 10.68M too.
 
 ## Token categories and the prompt cache
 
