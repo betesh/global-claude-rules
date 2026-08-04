@@ -18,7 +18,7 @@ ends. Readings toward goal 1 are in `usage/events.jsonl` (`usage-report` and `re
 
 | open question | current evidence | what's needed |
 |---|---|---|
-| Given that `per_pct` vary ~40% window to window, how many data point for the current window is enough to model per_pct for the remainder of the window? | 4 windows, 694K–1,080K tokens/%; model mix, cache-write share, and session count all ruled out as the sole cause | more windows; compare a bursty sub-interval's fit against its window's overall fit |
+| Given that `per_pct` vary ~40% window to window, how many data point for the current window is enough to model per_pct for the remainder of the window? | see "Within-window convergence" below: no small, fixed count is reliable | readings taken only while every agent on the machine is idle, to see whether that removes the regime-shift noise |
 | Where's the `CARRY_AT` knee (below which clearing isn't worth the interruption)? | 4 real TTL crossings, 71,903–231,467 tokens carried — all far above the 50,000 default | a crossing that carries less context, to bracket the knee from below |
 | Is `CHECKPOINT_AT`'s 50,000 default right? | 1 correlated `cleared` outcome so far | nudge→clear pairs to accumulate |
 | Is `MARGIN_CALLS=5` the right tool-gate headroom? | 1 forced trial: denied at `calls_remaining ≈ 1.0`, ahead of the prompt gate | an unforced, natural ceiling crossing |
@@ -33,7 +33,37 @@ measured so far:
 | A (08-03 14:11) | 7 | 821,796 | 4.0 | 9.0pp | 1.9% |
 | B (08-03 19:12) | 3 | 941,707 | 14.8 | 0.9pp | 2.4% |
 | C (08-04 00:13) | 9 | 1,080,381 | 21.4 | 7.7pp | 2.2% |
-| D (08-04 05:14) | 6 | 752,323 | 12.5 | 2.5pp | 4.0% |
+| D (08-04 05:14) | 9 | 1,140,912 | 19.7 | 6.6pp | 4.0% |
+
+(D's row moved from 6 readings/752,323/12.5 to 9 readings/1,140,912/19.7 as more of that window's
+own readings came in — a 52% swing in `per_pct` from within one window, not between windows. That
+motivated the convergence check below.)
+
+### Within-window convergence
+
+Fit on just the first *k* readings of a window and check the error against the readings held out
+after it (script: refit incrementally, compare predicted vs. reported pct). Result: **the held-out
+error does not shrink monotonically with more points** — more early-window readings sometimes made
+the forecast worse, not better:
+
+| window | fit on first 2 | fit on first 4 | fit on second-to-last |
+|---|---|---|---|
+| A (7 readings) | 15.0pp held-out err | 19.2pp | 25.1pp (6 of 7) — got worse throughout |
+| B (3 readings) | 5.3pp (only 1 point to hold out) | — | — |
+| C (9 readings) | 46.4pp | 15.5pp | 5.0pp (7 of 9) — converged, but only near the end |
+| D (9 readings) | 144.0pp | 30.0pp | 10.3pp (7 of 9) — still 5pp off even at 8 of 9 |
+
+Windows A and D each contain a burst partway through (large jumps in reported pct between adjacent
+readings — A: 52→98, D: 29→47→68) where the rate visibly changes; a line fit on the calm part of the
+window is a bad predictor of the bursty part. **No small, fixed point count reliably bounds the
+error** — 2 points was fine in B and off by 144pp in D; even 7–8 of 9 points (most of the window
+already spent) still carried 5–10pp of held-out error in C and D. The thing that breaks the fit
+looks like an un-modeled regime shift (matches the earlier finding that local rate tracks token
+mix, not calendar time), not sample size.
+
+Untested mitigation, to check against future windows: reporting pct only when every agent on the
+machine is idle (no concurrent mid-burst spend at the moment of the reading), to see whether that
+removes this noise rather than more points averaging over it.
 
 **`per_pct` swings ~40% across these four windows — not a fixed constant.** Within a window the fit
 is sometimes tight (B, D: under 2.5pp) and sometimes not (A, C: 7–9pp); the worst residuals in both
