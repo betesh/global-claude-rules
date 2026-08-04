@@ -19,7 +19,7 @@ One thing still needs a script, because it edits `settings.json` rather than
 just placing a symlink:
 
 ```sh
-./install-hooks.sh            # registers all four hooks below
+./install-hooks.sh            # registers all three hooks below
 ./install-hooks.sh --uninstall
 ```
 
@@ -52,10 +52,9 @@ up `~/.claude/rules` the same way a main session does hasn't been confirmed here
 | `hooks/usage-window.sh` + `usage_report.py` | No | SessionStart: emits the credit-window state as session context |
 | `hooks/usage-gate.sh` + `usage_gate.py` | No | UserPromptSubmit: drops a prompt once the window is spent |
 | `hooks/usage_common.py` | No | Log/transcript logic shared by the report and gate scripts above |
-| `hooks/plan-written.py` | Only when it fires | Nudges toward `/clear` after a plan file is written whole |
 | `hooks/checkpoint-stop.sh` + `checkpoint_stop.py` | Only when it fires | Stop: nudges a checkpoint once context is large and the session never went idle |
-| `hooks/write-settings-hook.py` | No | Edits settings.json; called once by `install-hooks.sh` with all four hook entries |
-| `install-hooks.sh` | No | Registers (or removes) all four hooks above |
+| `hooks/write-settings-hook.py` | No | Edits settings.json; called once by `install-hooks.sh` with all three hook entries |
+| `install-hooks.sh` | No | Registers (or removes) all three hooks above |
 | `usage/notes.md` | No | Committed conclusions about the credit window |
 | `usage/events.jsonl` | No | Raw usage observations, appended by agents — gitignored |
 | `README.md` | No | This file |
@@ -72,21 +71,6 @@ never be mistaken for a rule.
 | `git-c-not-cd.md` | Target other repos with `git -C DIR`, never `cd DIR && git` |
 | `usage-limits-and-context.md` | Pool what agents learn about the shared credit window in `usage/`; treat context size as spend |
 
-## The plan-written hook
-
-`install-hooks.sh` registers a `PostToolUse` hook on `Write`. When the file
-written is under `docs/plans/`, it adds one paragraph of context: make the
-record durable, commit, then tell the user this is a good moment to `/clear`.
-
-That moment is when a session's context is worth least and costs most — what
-matters was just written to a file, and the conversation that produced it would
-otherwise be re-sent on every request of the implementation that follows.
-
-It is a hook rather than a rule because a rule is re-read on every request of
-every session (~0.4 points of a window per 1,000 tokens) while this costs nothing
-until it applies. `Edit` is deliberately not matched: trimming finished items
-from a plan is routine, replacing the file is not.
-
 ## The checkpoint-stop hook
 
 `install-hooks.sh` also registers a `Stop` hook. `usage-gate.sh`'s own
@@ -102,8 +86,7 @@ moment to `/clear` or `/compact`.
 It fires at most once per session — it logs a `checkpoint-nudged` event and
 checks for one before firing again, since blocking a `Stop` forces another turn
 whose own request only adds to the context that triggered it, and nothing else
-would stop it asking again. It also skips a session that already wrote a plan
-file, since `plan-written.py` already delivered that nudge once.
+would stop it asking again.
 
 ## Adding a rule
 
@@ -151,7 +134,7 @@ prompt outright rather than spend a request against a window already spent.
 
 - **Whether subagents inherit `~/.claude/rules` the same way a main session
   does is unconfirmed here** — see [Symlinks](#symlinks).
-- **Project settings can't override these hooks.** All four are installed in
+- **Project settings can't override these hooks.** All three are installed in
   user settings and fire everywhere. A project that needs different behavior
   should say so in its own `CLAUDE.md`.
 

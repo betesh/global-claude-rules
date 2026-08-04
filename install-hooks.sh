@@ -1,11 +1,10 @@
 #!/bin/sh
 # Install (or remove) every hook this repo ships: the SessionStart credit-window
-# report, the UserPromptSubmit gate, the PostToolUse nudge toward /clear after a
-# plan file is written, and the Stop nudge to checkpoint a large session that
-# never idled.
+# report, the UserPromptSubmit gate, and the Stop nudge to checkpoint a large
+# session that never idled.
 #
-#   ./install-hooks.sh              install / update all four hooks
-#   ./install-hooks.sh --uninstall  remove all four
+#   ./install-hooks.sh              install / update all three hooks
+#   ./install-hooks.sh --uninstall  remove all three
 #   ./install-hooks.sh --help
 #
 # One script because they share a single settings.json and a single
@@ -43,16 +42,15 @@ command -v python3 >/dev/null 2>&1 || {
 
 WINDOW="$HOOKS_DIR/usage-window.sh"
 GATE="$HOOKS_DIR/usage-gate.sh"
-PLAN="$HOOKS_DIR/plan-written.py"
 CHECKPOINT="$HOOKS_DIR/checkpoint-stop.sh"
 
-for script in "$WINDOW" "$GATE" "$PLAN" "$CHECKPOINT"; do
+for script in "$WINDOW" "$GATE" "$CHECKPOINT"; do
 	[ -f "$script" ] || {
 		echo "install-hooks.sh: hook script not found at $script" >&2
 		exit 1
 	}
 done
-chmod +x "$WINDOW" "$GATE" "$PLAN" "$CHECKPOINT"
+chmod +x "$WINDOW" "$GATE" "$CHECKPOINT"
 
 CONFIG_DIR=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 SETTINGS="$CONFIG_DIR/settings.json"
@@ -61,7 +59,7 @@ mkdir -p "$CONFIG_DIR"
 # `resume` and `compact` are left out of SessionStart: they continue a session
 # whose window is already reported, and re-reporting it would spend context to
 # say the same thing.
-WINDOW="$WINDOW" GATE="$GATE" PLAN="$PLAN" CHECKPOINT="$CHECKPOINT" \
+WINDOW="$WINDOW" GATE="$GATE" CHECKPOINT="$CHECKPOINT" \
 HOOKS_DIR="$HOOKS_DIR" SETTINGS_PATH="$SETTINGS" MODE="$MODE" python3 -c '
 import json, os
 print(json.dumps({
@@ -73,8 +71,6 @@ print(json.dumps({
          "command": os.environ["WINDOW"]},
         {"event": "UserPromptSubmit", "matcher": "",
          "command": os.environ["GATE"]},
-        {"event": "PostToolUse", "matcher": "Write",
-         "command": "python3 " + os.environ["PLAN"]},
         {"event": "Stop", "matcher": "",
          "command": os.environ["CHECKPOINT"]},
     ],
@@ -95,5 +91,5 @@ if [ "$MODE" = install ]; then
 		echo "  | (exit 0 — prompts are being sent)"
 	fi
 	echo "Done. The window state above is what each new session will see;"
-	echo "the plan and checkpoint hooks fire only when they trigger."
+	echo "the checkpoint hook fires only when it triggers."
 fi

@@ -7,10 +7,6 @@ the prompt-cache TTL; a session that stays continuously active never reaches
 that gate no matter how large its context grows. This is the complementary
 trigger: context size alone, checked at the end of every turn.
 
-Skipped when a plan file was already written this session — plan-written.py's
-PostToolUse hook already delivered the same nudge at the moment the plan itself
-became durable, and firing this one too would ask for the same save twice.
-
 Fires at most once per session: logging a `checkpoint-nudged` event is what
 stops it asking again. Nothing else would — a Stop hook has no documented
 equivalent of `stop_hook_active` to break a loop on its own, and blocking a
@@ -50,35 +46,6 @@ MESSAGE = (
 )
 
 
-def plan_file_written(transcript):
-    """Whether this transcript already contains a Write to docs/plans/*.
-
-    Mirrors the path check in plan-written.py, which fires on that same event.
-    """
-    try:
-        with open(transcript, errors="replace") as f:
-            for line in f:
-                if '"name":"Write"' not in line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                for block in (entry.get("message") or {}).get("content") or []:
-                    if not isinstance(block, dict) or block.get("type") != "tool_use":
-                        continue
-                    if block.get("name") != "Write":
-                        continue
-                    path = (block.get("input") or {}).get("file_path") or ""
-                    parts = os.path.normpath(path).split(os.sep)
-                    if "docs" in parts and parts.index("docs") + 1 < len(parts) \
-                            and parts[parts.index("docs") + 1] == "plans":
-                        return True
-    except OSError:
-        pass
-    return False
-
-
 def already_nudged(events, session_id):
     return any(
         e.get("kind") == "checkpoint-nudged" and e.get("session") == session_id
@@ -101,7 +68,7 @@ def main():
         return
 
     events = uc.read_events()
-    if already_nudged(events, session_id) or plan_file_written(transcript):
+    if already_nudged(events, session_id):
         return
 
     uc.append_event(session_id, {"kind": "checkpoint-nudged", "context": context})
