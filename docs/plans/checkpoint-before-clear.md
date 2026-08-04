@@ -8,11 +8,6 @@
       (`rules/measure-before-recording.md`) and would be true almost immediately, nagging on nearly
       every turn. Run a candidate for a session or two and record in `usage/notes.md` how often it
       fired against how often the context had actually grown enough to matter.
-- [ ] Updates to the string returned by `carried_reason` (in hooks/usage_gate.py):
-      - It must say clearly that the agent should minimize tool calls while doing everything suggested, since now is when they are most expensive
-      - "name any instruction the user gave that generalizes" sounds like we're just asking the agent to give the rule/skill/memory
-        a title, but what it should actually do is save it in ~/.claude/projects/<PROJECT_NAME>/memory/MEMORY.md or as a plan
-        in ~/github/global-claude-rules/docs/plans (regardless of what the current project is)
 
 ## Success criteria
 

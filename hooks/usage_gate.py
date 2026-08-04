@@ -93,10 +93,14 @@ def carried_reason(events, session_id, transcript):
         "re-establish what a cache-read would otherwise cover far more cheaply — clearing now "
         "costs nothing extra, since that rewrite is coming either way. Before telling the user "
         "it is safe to /clear: check `git status` in every repo touched this session, not just "
-        "the working directory; name any instruction the user gave that generalizes beyond this "
-        "project and belongs in a rule or skill rather than being re-explained next time; and "
-        "save anything meeting this project's own memory criteria that was learned this session "
-        "and never written down."
+        "the working directory; save anything meeting this project's own memory criteria that "
+        "was learned this session and never written down; and write down any instruction the "
+        "user gave that generalizes beyond this project — as a memory, in "
+        f"{uc.CONFIG_DIR}/projects/<project>/memory/MEMORY.md, or as a plan under "
+        f"{os.path.join(uc.REPO_DIR, 'docs/plans')} when it isn't specific to this project — "
+        "rather than leaving it to be re-explained next time. Do all of this in as few tool "
+        "calls as possible: context is at its largest right now, so every call this session "
+        "costs more than it will again until the next /clear."
     )
 
 
