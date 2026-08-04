@@ -177,6 +177,46 @@ def find_window_start(events):
     return start if start and now - start < WINDOW else None
 
 
+def _ppid(pid):
+    try:
+        stat = open(f"/proc/{pid}/stat").read()
+    except OSError:
+        return None
+    # comm (2nd field) is parenthesized and can itself contain spaces, so split
+    # after its closing paren rather than by position from the start.
+    fields = stat.rsplit(")", 1)[-1].split()
+    try:
+        return int(fields[1])
+    except (IndexError, ValueError):
+        return None
+
+
+def claude_pid():
+    """The pid of the `claude` process this hook is running under, or None.
+
+    session_id is not stable across `/clear` — confirmed empirically, a
+    checkpoint-nudged event and the cleared event that followed it seconds
+    later carried two different session ids — but the terminal's underlying
+    process doesn't change, so its pid is what links a nudge back to whatever
+    clear follows it. Walks the hook's own ancestry (it runs as a child of a
+    shell wrapper, itself a child of `claude`) rather than trusting a fixed
+    number of hops, since that depth isn't guaranteed to stay the same.
+    """
+    pid = os.getpid()
+    for _ in range(12):
+        ppid = _ppid(pid)
+        if not ppid:
+            return None
+        try:
+            comm = open(f"/proc/{ppid}/comm").read().strip()
+        except OSError:
+            return None
+        if comm == "claude":
+            return ppid
+        pid = ppid
+    return None
+
+
 def append_event(session_id, event):
     """Add one line to the shared log. Append only: concurrent writers share it.
 

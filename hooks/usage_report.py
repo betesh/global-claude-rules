@@ -14,7 +14,10 @@ neither `cache-expired` nor `checkpoint-nudged` records what happened after the
 nudge, so there was no way to tell whether either threshold's interruption was
 worth it. This links a `/clear` back to whichever nudge preceded it (if any)
 and the context size right before it, so a later pass can compare what
-continuing would have cost against what clearing did.
+continuing would have cost against what clearing did. The link is by
+`claude_pid` (`usage_common.claude_pid()`), not `session_id` — confirmed
+empirically that `/clear` issues a fresh session id, so a checkpoint-nudged
+and the cleared event it preceded logged two different ones seconds apart.
 """
 
 import argparse
@@ -31,18 +34,20 @@ def parse_args():
     return parser.parse_args()
 
 
-def clear_outcome(events, session_id):
+def clear_outcome(events, pid):
     """(nudge kind, minutes since it fired) for the most recent `cache-expired`
-    or `checkpoint-nudged` event on this session, or (None, None) when nothing
-    nudged it.
+    or `checkpoint-nudged` event logged by this same `claude` process, or
+    (None, None) when nothing nudged it or `pid` is unknown.
 
     There is no way to know a `/clear` was a direct response to a given nudge
     rather than an unrelated habit — only how stale the connection is, which is
     what the minutes are for; a later pass can decide how much lag still counts.
     """
+    if not pid:
+        return None, None
     best = None
     for event in events:
-        if event.get("kind") in ("cache-expired", "checkpoint-nudged") and event.get("session") == session_id:
+        if event.get("kind") in ("cache-expired", "checkpoint-nudged") and event.get("claude_pid") == pid:
             if best is None or event["_t"] > best["_t"]:
                 best = event
     if not best:
@@ -67,10 +72,13 @@ def main():
 
     if payload.get("source") == "clear" and session_id:
         carry = uc.session_carry(transcript) if transcript else None
-        nudge_kind, since_min = clear_outcome(events, session_id)
+        pid = uc.claude_pid()
+        nudge_kind, since_min = clear_outcome(events, pid)
         cleared = {"kind": "cleared"}
         if carry and carry[0]:
             cleared["context"] = carry[0]
+        if pid:
+            cleared["claude_pid"] = pid
         if nudge_kind:
             cleared["nudge_kind"] = nudge_kind
             cleared["nudge_age_min"] = round(since_min, 1)

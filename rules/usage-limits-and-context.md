@@ -26,9 +26,9 @@ whatever else that kind carries — that order is what makes rows comparable at 
 |---|---|---|---|
 | `usage-report` | `pct`, `renewsInMin` | the user, via `python3 usage/log-pct.py PCT [RENEWS_IN_MIN]` | a fresh reading exists — no agent or request needed |
 | `renewed` | `startedT` | the hook, automatically | the first session to notice the current boundary isn't logged yet |
-| `cache-expired` | — | the hook, automatically | a session idle past the prompt-cache TTL resumes holding enough context to be worth clearing |
-| `checkpoint-nudged` | `context` | the hook, automatically | a continuously-active session (no idle gap) crosses the same context threshold |
-| `cleared` | `context`, `nudge_kind`, `nudge_age_min` | the hook, automatically | a session's `SessionStart` fires with source `clear` — links the `/clear` back to whichever nudge preceded it, if any |
+| `cache-expired` | `claude_pid` | the hook, automatically | a session idle past the prompt-cache TTL resumes holding enough context to be worth clearing |
+| `checkpoint-nudged` | `context`, `claude_pid` | the hook, automatically | a continuously-active session (no idle gap) crosses the same context threshold |
+| `cleared` | `context`, `claude_pid`, `nudge_kind`, `nudge_age_min` | the hook, automatically | a session's `SessionStart` fires with source `clear` — links the `/clear` back to whichever nudge preceded it (by `claude_pid`, not `session_id` — `/clear` issues a fresh one), if any |
 
 Never write `usage-report`, `renewed`, `cache-expired`, `checkpoint-nudged`, or `cleared` yourself —
 all five exist to be read, not appended by you. Token counts, request counts, when the window opened, which

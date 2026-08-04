@@ -72,7 +72,11 @@ def main():
     if already_nudged(events, session_id):
         return
 
-    uc.append_event(session_id, {"kind": "checkpoint-nudged", "context": context})
+    event = {"kind": "checkpoint-nudged", "context": context}
+    pid = uc.claude_pid()
+    if pid:
+        event["claude_pid"] = pid
+    uc.append_event(session_id, event)
     print(json.dumps({"decision": "block", "reason": MESSAGE.format(tokens=context)}))
 
 

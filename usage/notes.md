@@ -84,7 +84,14 @@ only) has 15 `checkpoint-nudged` firings on record, context 50,709–298,209 at 
 minimum (50,709) confirms the default is the threshold actually in effect; it says nothing about
 whether 50,000 is the *right* one, since firing "past the threshold" by design can't reveal whether
 an earlier or later nudge would have been better — that needs outcome data (did the nudge lead to a
-`/clear` that was worth the interruption?), which isn't logged anywhere yet.
+`/clear` that was worth the interruption?).
+
+That outcome data now gets logged (`cleared` event, `usage_report.py`, fired on `SessionStart`
+source `clear`) — but not linked by `session_id`. First real instance caught it: a
+`checkpoint-nudged` and the `cleared` event 55 seconds later carried two *different* session ids.
+`/clear` issues a fresh one; the terminal's underlying `claude` process doesn't change, so
+`usage_common.claude_pid()` walks the hook's own process ancestry to that pid instead and links on
+that. Fixed before more than one uncorrelated data point accumulated.
 
 ## The PreToolUse budget gate
 
@@ -101,7 +108,7 @@ observed). `MARGIN_CALLS=5` still caught it with headroom, so the default stands
 |---|---:|---|
 | always-loaded core (system prompt + built-in tools) | 19,033 | identical `cache_read` across full-repo/empty-dir/`--safe-mode` interactive readings |
 | this repo's `CLAUDE.md` | ~1,225 | repo dir vs. empty dir, both scripted and interactive |
-| `rules/` | ~3,000 | see "Shrinking `rules/`" in the plan's Out of scope |
+| `rules/` | ~3,000 | already governed by `CLAUDE.md`'s per-token cost note; an order of magnitude below the floor it sits inside |
 | hooks (`SessionStart`'s own report) | ~541 | `~/.claude/settings.json` `hooks` key removed for two scripted runs, restored after |
 | skills/agent discovery (residual) | ~6,459 | customization stack (10,071) minus rules minus hooks |
 

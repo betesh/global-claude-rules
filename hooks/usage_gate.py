@@ -128,7 +128,11 @@ def main():
 
     carried = carried_reason(events, session_id, transcript)
     if carried:
-        uc.append_event(session_id, {"kind": "cache-expired"})
+        event = {"kind": "cache-expired"}
+        pid = uc.claude_pid()
+        if pid:
+            event["claude_pid"] = pid
+        uc.append_event(session_id, event)
         print(
             f"{carried} Use /clear if the next task does not depend on this conversation, or "
             "/compact if the work must continue here. To keep it anyway, send the prompt again — "
