@@ -200,11 +200,55 @@ customization stack costs ≈11,260 scripted tokens. Isolating this repo's own `
 (scripted, this repo's dir vs. an empty scratch dir, rules/hooks unchanged): 29,205–29,213 vs.
 27,984 → ≈1,225 tokens for the project `CLAUDE.md` file (3,135 bytes).
 
-Two attempts to isolate hooks alone did not work and are recorded so they aren't retried the same
-way: `--settings '{"hooks":{}}'` left the SessionStart hook firing anyway (confirmed in a `-d api`
-debug log — the CLI `--settings` JSON does not override the `hooks` key already in
+Two attempts to isolate hooks alone this way did not work and are recorded so they aren't retried
+the same way: `--settings '{"hooks":{}}'` left the SessionStart hook firing anyway (confirmed in a
+`-d api` debug log — the CLI `--settings` JSON does not override the `hooks` key already in
 `~/.claude/settings.json`), and `--setting-sources project,local` produced a result polluted by a
 partial cross-session cache hit (15,912 of its 30,750 total came from `cache_read`, matching another
-run's cached prefix, not a clean miss). Neither isolates hooks' own contribution; a clean figure for
-that, and a true interactive (non-scripted) per-configuration sweep to match the 21,905–22,188
-baseline, are still open.
+run's cached prefix, not a clean miss). Hooks were later isolated by editing
+`~/.claude/settings.json` directly instead — see "Hooks alone cost ~541 tokens" above — and the
+interactive sweep by user-run sessions — see "Interactive costs ~6,470 tokens more" above.
+
+## Phase 3: in one session, dependent shell steps outweigh independent calls 3-to-1
+
+Scope: the window that just closed (2026-08-04T00:13–05:13-06:00) held 387 requests across ~10
+sessions, but three unrelated projects on this machine accounted for 384 of them (170 + 116 + 98,
+the last being every `global-claude-rules` session combined) — a shared-machine window mixes in
+other people's/other agents' work that I have no context to classify correctly. Restricted to this
+conversation's own session (`866ef482`, 55 requests) instead, where I can judge intent firsthand
+rather than guess from an unfamiliar transcript.
+
+21 of those 55 produced under 400 output tokens, together resending 1,684,768 tokens of context.
+Classified each by grouping consecutive ones that share a cause, then counting every group member
+after its first as the avoidable part (the first would still have had to happen; only the repeats
+are the saving):
+
+| class | tokens | groups |
+|---|---:|---|
+| dependent shell steps that could've been one command | 637,608 | 4 |
+| independent calls that could've been issued together | 232,601 | 3 |
+| verification after an edit | 0 | none found |
+| text between tool calls | 0 | none found — narration always shipped in the same request as the tool call it introduced |
+| not clearly avoidable (excluded) | 814,559 | genuine turn boundaries (waiting on the user), and commands already consolidated into one call |
+
+"Dependent shell steps" was things like: `ls` to find a path, then a *separate* call using that
+path by hand, instead of `$(ls ... | head -1)` in the same command; or grep-check, `git add`, `git
+commit` as three calls where `&&` would chain them into one. It showed up twice as "find which
+transcript file, then read it" and twice as "verify the plan is clean, then stage and commit" — the
+same two shapes recurring, not one-off noise.
+
+## Dependent-shell-step chaining is worth a standing rule; independent-call batching is not
+
+At ~586,153 tokens/% (this window's live rate), the 637,608-token "dependent shell steps" total is
+~1.1 points of a window from *one two-hour session* — and both recurring shapes (locate-then-use,
+verify-then-commit) are generic patterns any task in any repo would hit again, not one-off. A rule
+costing a few hundred tokens (~0.1–0.2 points, forever, every session) pays for itself many times
+over against that. **Decision: add a standing rule.** It can't be a hook — nothing can reliably
+detect "the next command only needs this one's stdout, not real reasoning about it" from outside
+the model — so it has to be text.
+
+The 232,601-token "independent calls" total came from a single session that also generated most of
+this plan's own scratch work (many one-off investigation reads/greps in quick succession) — atypical
+of ordinary work, and the system prompt already tells the model to batch independent calls when it
+recognizes them as independent; the gap here looks like a one-off lapse, not a pattern with legs.
+**Decision: no rule** — not enough evidence this recurs outside how this specific session behaved.

@@ -6,24 +6,6 @@ and the payloads that edits leave behind. Measured over one window (140 requests
 the floor was 22.1K per request (35% of what the attribution can see), requests producing under 400
 output tokens were 44% of all requests and 43% of context spend, and `Edit` inputs carried 746K.
 
-## Phase 3 — establish how much of the request count is avoidable
-
-62 of 140 requests produced under 400 output tokens and cost 4.6M between them. That is what those
-requests cost, not what removing them would save — the saving is only over the ones that did not
-need to be their own request.
-
-- [ ] Classify the low-output requests in one window's transcripts by what made each one separate:
-      independent calls that could have been issued together, dependent shell steps that could have
-      been one command, verification after an edit, and text between tool calls.
-      - Report a token figure per class, ranked. Anything not clearly avoidable stays out of the
-        total.
-- [ ] Decide from that ranking whether the top class earns a standing rule, and record the decision
-      in `usage/notes.md` either way.
-      - A rule costs ~0.4 points of a window per 1,000 tokens, forever, in every session. If the
-        top class is worth less than a few points, writing it down is a net loss and the finding is
-        that the request count is already near its floor.
-      - Prefer a hook that makes the pattern impossible over text that asks for it.
-
 ## Phase 4 — stop repeated edits to one file from accumulating
 
 `Edit` inputs cost 746K in one window, 645K of it in a single session, because every `old_string`
