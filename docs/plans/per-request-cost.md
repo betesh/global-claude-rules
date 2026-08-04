@@ -14,16 +14,17 @@ deferred tools, the session-start rule load, and cache-hit/miss visibility are a
 `usage/notes.md`; none of them move the floor enough to act on, and cache-hit/miss is already
 exposed per request.
 
-- [ ] Measure the floor per configuration **interactively**, not scripted: a scripted `claude -p`
-      run's floor (29,205–29,213, three runs, this repo's dir) sits ~7,000 tokens above the
-      21,905–22,188 interactive baseline above, so absolute numbers from `-p` don't transfer — see
-      `usage/notes.md`. Vary one thing at a time (empty directory, hooks alone, each candidate) and
-      record every number with its configuration in `usage/notes.md`.
-      - Isolating hooks alone is still open: `--settings '{"hooks":{}}'` does not override
-        `~/.claude/settings.json`'s `hooks` key (the SessionStart hook still fired, confirmed via a
-        `-d api` debug log), and `--setting-sources project,local` came back polluted by a partial
-        cross-session cache hit. Find a way to disable only hooks, or accept that this needs a
-        human-attended interactive session rather than a scripted one.
+- [ ] Isolate hooks' own contribution to the floor. Three interactive readings (full repo, empty
+      dir, `--safe-mode`, see `usage/notes.md`) pin the always-loaded core at 19,033 tokens and this
+      repo's whole rules+hooks+skills+agents customization stack at 10,071 — of which `rules/` is
+      already known to be ~3,000, leaving ~7,000 unattributed between skills/agent discovery and
+      hooks' own SessionStart output.
+      - `--settings '{"hooks":{}}'` does not override `~/.claude/settings.json`'s `hooks` key (the
+        SessionStart hook still fired, confirmed via a `-d api` debug log), and
+        `--setting-sources project,local` came back polluted by a partial cross-session cache hit.
+        The remaining option is editing `~/.claude/settings.json` directly for one interactive
+        reading, which is only safe to do when no concurrent session is close to the usage ceiling
+        (it also removes the usage gate for the duration) — check before doing it.
 
 ## Phase 3 — establish how much of the request count is avoidable
 

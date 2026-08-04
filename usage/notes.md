@@ -90,16 +90,61 @@ growth. `MARGIN_CALLS=5` still caught the crossing with single-digit headroom, s
 stands from this trial, but the reason to treat `calls_remaining` as an upper bound is concurrent
 sessions first, own-context growth second.
 
-## A scripted `claude -p` run is not a stand-in for the interactive floor
+## Interactive costs ~6,470 tokens more than scripted, not less — the first comparison was wrong
+
+The first pass on this (below, kept for the record rather than quietly edited away) compared a
+same-day scripted floor against the 21,905–22,188 interactive baseline recorded earlier in this
+plan and concluded scripted ran ~7,000 tokens *above* interactive. That baseline turned out to be
+stale — recorded before rules/hooks/skills grew — so the comparison was scripted-today against
+interactive-from-the-past, not the same-day pair it needed to be. A same-day interactive reading
+contradicts the conclusion outright:
+
+- Repo directory: interactive (this session's own first request) 16,645 + 19,033 = 35,678 vs.
+  scripted 29,205–29,213 → **interactive is ~6,470 tokens higher**, not lower.
+- Empty directory: interactive 15,420 + 19,033 = 34,453 vs. scripted 27,984 → **interactive is
+  ~6,469 tokens higher** — the same delta to within a token, in a completely different absolute
+  context, which is what makes it a real effect rather than noise.
+
+Both interactive requests also landed on an *identical* `cache_read_input_tokens` of 19,033 despite
+being different sessions in different directories — Anthropic's prompt cache is keyed by content,
+not by session, so two interactive sessions launched close together with an identical fixed prefix
+(system prompt, tools, rules text) share a cache hit on it even on each one's first request. That
+also means the old 21,905–22,188 baseline and today's ~35K figure aren't necessarily measuring
+different things so much as measuring the same growing prefix at two points in time — the rules,
+hooks, and skills this repo carries today are larger than when that baseline was taken.
+
+A third, `--safe-mode` interactive reading (user-run) confirms the delta holds independent of
+customization: interactive safe-mode came back 5,349 + 19,033 = 24,382 against the scripted
+safe-mode figure of 17,948 below — a ~6,434-token gap, matching the other two to within 36 tokens.
+**Three configurations, one consistent ~6,434–6,470-token interactive-over-scripted gap** — real,
+and independent of rules/hooks/skills/CLAUDE.md.
+
+All three interactive readings — full repo, empty dir, and safe-mode — landed on the *identical*
+19,033-token `cache_read`, even though safe-mode disables everything customization does. That says
+the always-loaded system-prompt-and-tools block is sent first and is genuinely fixed regardless of
+CLAUDE.md/rules/hooks/skills, and those customizations are appended after it as later blocks (cache
+matches share prefixes, so a shorter shared prefix still hits). Subtracting it from each reading's
+`cache_creation` gives a clean per-config tail: safe-mode 5,349 (system-prompt-adjacent per-machine
+info — cwd, git status, etc. — that `--safe-mode` doesn't strip), empty dir 15,420, full repo
+16,645. Empty-vs-full (1,225, this repo's `CLAUDE.md`) and empty-vs-safe (10,071, the whole
+rules+hooks+skills+agents customization stack) both match the equivalent scripted deltas (1,221 and
+10,036) to within a few dozen tokens — strong cross-check that the tail decomposition is real, not
+noise from cache-sharing luck.
+
+Of that 10,071, `rules/` itself is already known to be ~3,000 tokens (see "Shrinking `rules/`" in
+the plan's Out of scope) — leaving ~7,000 unattributed between skills/agent discovery and hooks'
+own SessionStart output. Splitting that further needs hooks isolated on their own, which is still
+open (see the plan).
+
+<details><summary>superseded first pass, kept rather than silently edited</summary>
 
 Measured 2026-08-04, this repo's directory, default settings, three separate `claude -p "Reply
 with exactly: ok" --output-format json` runs: floor (`cache_creation_input_tokens +
 cache_read_input_tokens` on the single request) came back 29,213 / 29,205 / 29,206 — tight
-variance, but ~7,000 tokens (32%) above the interactive baseline of 21,905–22,188 recorded above.
-Print mode sends a different preamble than an interactive session (fewer interactive-only tools,
-by the size of it something else added), so **absolute floor numbers from `-p` don't transfer to
-interactive figures** — only deltas between two scripted runs are trustworthy, and only against
-each other.
+variance. Compared against the 21,905–22,188 interactive baseline recorded earlier in this plan,
+that looked like scripted running ~7,000 tokens *above* interactive. Wrong comparison — see above.
+
+</details>
 
 ## Denying deferred tools trims ~890 tokens, not the 16.7K candidate
 
