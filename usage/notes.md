@@ -115,19 +115,31 @@ Every *completed* window logged in `events.jsonl`, summed directly from transcri
 `scan_transcripts` used everywhere else) rather than read off `usage-report` pct — those readings
 don't reliably land right at the boundary, so a transcript sum is the more exact number:
 
-| window | start | tokens spent | requests | sessions touched |
-|---|---|---:|---:|---:|
-| A | 08-03 14:11 | 70,859,292 | 425 | 54 |
-| B | 08-03 19:12 | 61,929,136 | 544 | 46 |
-| C | 08-04 00:13 | 82,266,244 | 391 | 33 |
-| D | 08-04 05:14 | 65,889,854 | 408 | 15 |
+| window | start | tokens spent | requests | sessions touched | last token used |
+|---|---|---:|---:|---:|---|
+| A | 08-03 14:11 | 70,859,292 | 425 | 54 | 3h20m in (67% of the window) |
+| B | 08-03 19:12 | 61,929,136 | 544 | 46 | 3h42m in (74% of the window) |
+| C | 08-04 00:13 | 82,266,244 | 391 | 33 | 2h49m in (56% of the window) |
+| D | 08-04 05:14 | 65,889,854 | 408 | 15 | 5h00m in (100% of the window) |
 
 Mean 70.2M, range 61.9M–82.3M (±7.6M, ~11% — one standard deviation). That's a much tighter band
 than the `per_pct` swings above (~40% window to window), which fits the user's account that most of
 these windows ran to exhaustion rather than being paced — a token-denominated ceiling that stayed
 roughly put while the pct-to-token slope moved around underneath it. Window E (started 08-04 10:14)
-is still open and excluded from the average; it stood at 71.0M tokens over 12 sessions after 1h16m
-elapsed.
+is still open and excluded from the average; it stood at 75.4M tokens over 487 requests after 1h18m
+elapsed, last token at 11:32.
+
+**"Last token used" answers whether a window was actually burned out or just ended.** A, B, and C
+all stopped spending well before their 5-hour mark (56–74%) and then show no further tokens until
+the *next* window's first request — the gap in between is exactly the idle-until-renewal pattern a
+hard quota cap produces, not pacing. A and C are directly confirmed by their own last `usage-report`
+reading landing right next to the stop (A: 98% at 17:29, 2 min before its last token; C: 97% at
+02:56, 7 min before its last token). B's last reading (60% at 22:05) is 49 minutes before its last
+token at 22:54 — the same idle-until-renewal shape, but unconfirmed: a jump from 60% to exhaustion in
+49 minutes is plausible at the rates measured elsewhere, just not read directly. D breaks the pattern
+entirely: its last token lands right at the 5h00m boundary with no idle gap before it, and its last
+reading was only 68% eight minutes before the window ended — D looks like continuous work that was
+still running when the window happened to roll over, not a window that hit a cap.
 
 Conditions: every transcript on the machine, across all 4 projects — this is an account-wide window,
 not a per-repo one. 100% `claude-sonnet-5` in every window, so model mix isn't hiding in this number.
