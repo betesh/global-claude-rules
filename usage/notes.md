@@ -23,6 +23,37 @@ ends. Readings toward goal 1 are in `usage/events.jsonl` (`usage-report` and `re
 | Is `CHECKPOINT_AT` right? | 4 correlated `cleared` outcomes at the old 50,000 default (nudge_age_min 0.9–4.7 — user cleared within minutes every time), contexts 71,675–113,950 | lowered the default to 35,000 (2026-08-04, a guess — see `checkpoint_stop.py`'s docstring) to bracket the range below 50,000; watching for whether nudges there still get a quick `cleared`, or start going unanswered |
 | Is `MARGIN_CALLS=5` the right tool-gate headroom? | 1 forced trial: denied at `calls_remaining ≈ 1.0`, ahead of the prompt gate | an unforced, natural ceiling crossing |
 
+## Cost of not clearing (transcript scan, 2026-08-04)
+
+The nudge→`cleared` pairs above only measure whether a nudge got obeyed, not what continuing would
+have cost — that counterfactual doesn't need a nudge to exist: a session that's never cleared just
+keeps writing to the same transcript file, so its later turns are directly visible. Scanned every
+transcript under `~/.claude/projects/*/*.jsonl` (68 sessions with ≥2 real requests, all 4 projects
+on this machine, not filtered to sessions the `CHECKPOINT_AT` hook ever saw — most predate it).
+
+For each session, found the first turn where context crossed 35,000 (and separately, 50,000) and
+measured what happened afterward:
+
+- **Stopping right after crossing is rare.** 65/68 sessions that reached 35,000 kept running
+  afterward (2 never reached it, 1 ended on the crossing turn). At 50,000: 62/68 continued.
+- **The continuation is never small.** Even the smallest continuations past 35,000 still ran 7+
+  more turns and 300,000+ more tokens before the session ended. Median: 51 more turns, +101,863
+  tokens of context growth, 4.6M tokens spent, 39 minutes of wall clock.
+- **Rough excess estimate**: summing `context − 30,258` (this repo's measured floor, used as a
+  stand-in for every project scanned) over every turn after the 35,000 crossing, across all 65
+  continuing sessions: **882M tokens** over 6,071 turns, median 3.07M tokens/session. This is an
+  upper bound, not a clean savings number — it assumes a cleared session's context stays pinned at
+  the floor for the rest of those turns, when a real session keeps growing from the lower start too
+  — but per-session average context after crossing ranged 40,975–270,812, wide enough that the
+  direction isn't in doubt.
+- One session (`07a1a4d4…`) showed *negative* growth after crossing 50,000 — a mid-session
+  `/compact`, not a session that stopped early; excluded from the "continued" read above.
+
+This fills in the side the nudge/clear timing data couldn't reach: continuing is expensive and
+consistently so. It still doesn't locate the `CHECKPOINT_AT` knee by itself, because the other side
+of that tradeoff — the cost of interrupting *before* it was needed — has no token-denominated
+measurement yet, only the acceptance/timing data already in the table above.
+
 ## Calibration: tokens-per-percent by window
 
 `pct = intercept + tokens/per_pct`, fit by `calibrate()` in `hooks/usage_common.py`. Four windows
