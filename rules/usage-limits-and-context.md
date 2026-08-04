@@ -5,7 +5,7 @@ spend._
 
 ## The hooks watch the window, not you
 
-`install-usage-hook.sh` installs both halves, and neither costs a request:
+`install-hooks.sh` installs both halves, and neither costs a request:
 
 - **SessionStart** prints where the window stands at the top of your context.
 - **UserPromptSubmit** refuses the prompt outright, so nothing is sent, when the window is spent or

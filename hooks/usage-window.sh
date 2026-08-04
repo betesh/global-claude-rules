@@ -1,6 +1,6 @@
 #!/bin/sh
 # Reports the state of the shared credit window as SessionStart context, and
-# logs the session's own start. install-usage-hook.sh registers it:
+# logs the session's own start. install-hooks.sh registers it:
 #
 #   SessionStart  ./usage-window.sh   plain stdout becomes context
 #

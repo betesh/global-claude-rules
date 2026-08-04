@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Nudge toward /clear when a plan file is written whole.
 
-Registered by install.sh:
+Registered by install-hooks.sh:
 
     PostToolUse  Write  ./plan-written.py   JSON stdout becomes context
 

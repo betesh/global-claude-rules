@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Nudge a checkpoint when context is large and the session never went idle.
 
-Registered by install-checkpoint-hook.sh as a Stop hook. usage_gate.py's
+Registered by install-hooks.sh as a Stop hook. usage_gate.py's
 carried_reason (UserPromptSubmit) only catches a session once it goes idle past
 the prompt-cache TTL; a session that stays continuously active never reaches
 that gate no matter how large its context grows. This is the complementary

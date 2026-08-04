@@ -1,7 +1,7 @@
 #!/bin/sh
 # Nudges a checkpoint at the end of a turn when context is large and the
 # session never went idle enough to trip usage-gate.sh's own trigger.
-# install-checkpoint-hook.sh registers it:
+# install-hooks.sh registers it:
 #
 #   Stop  ./checkpoint-stop.sh   JSON stdout can block the turn from ending
 #

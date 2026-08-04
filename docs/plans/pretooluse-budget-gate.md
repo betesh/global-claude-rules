@@ -34,8 +34,8 @@ need to guess how fast the session is moving.
       - Decide matcher scope: gating every tool call is simplest, but check whether scoping to a
         subset (e.g. excluding cheap read-only calls) changes the outcome before assuming it
         should — a call denied one tick before a genuinely expensive one buys nothing.
-- [ ] Register it the way `install-usage-hook.sh` / `install-plan-hook.sh` already register their
-      events, as a matching installer script for `PreToolUse`.
+- [ ] Register it the way `install-hooks.sh` already registers the other four events, adding a
+      `PreToolUse` entry to that script rather than a new installer.
 
 ## Phase 3 — measure the margin
 

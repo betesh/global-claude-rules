@@ -1,6 +1,6 @@
 #!/bin/sh
 # Decides whether a prompt is worth sending, before it is sent.
-# install-usage-hook.sh registers it:
+# install-hooks.sh registers it:
 #
 #   UserPromptSubmit  ./usage-gate.sh   exit 2 drops the prompt; stdout is context
 #

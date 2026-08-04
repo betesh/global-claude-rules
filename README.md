@@ -15,19 +15,17 @@ Clone anywhere, then symlink the rules and skills into place — see
 [Symlinks](#symlinks) below. There is no installer for either: both are a single
 `ln -s`, and scripting a one-line command just adds a file to keep in sync.
 
-Two things still need a script, because they edit `settings.json` rather than
+One thing still needs a script, because it edits `settings.json` rather than
 just placing a symlink:
 
 ```sh
-./install-usage-hook.sh            # the shared credit-window report + gate
-./hooks/install-plan-hook.sh       # the /clear nudge after a plan file is written
-./hooks/install-checkpoint-hook.sh # the checkpoint nudge for a large session that never idles
+./install-hooks.sh            # registers all four hooks below
+./install-hooks.sh --uninstall
 ```
 
-Each takes `--uninstall` and `--help`, backs up `settings.json` to
-`settings.json.bak` first, and is safe to re-run after moving the clone (the
-recorded hook path is absolute). Requires `python3`, used only to edit the JSON
-settings file safely.
+It backs up `settings.json` to `settings.json.bak` first, and is safe to re-run
+after moving the clone (the recorded hook paths are absolute). Requires
+`python3`, used only to edit the JSON settings file safely.
 
 ## Symlinks
 
@@ -56,10 +54,8 @@ up `~/.claude/rules` the same way a main session does hasn't been confirmed here
 | `hooks/usage_common.py` | No | Log/transcript logic shared by the report and gate scripts above |
 | `hooks/plan-written.py` | Only when it fires | Nudges toward `/clear` after a plan file is written whole |
 | `hooks/checkpoint-stop.sh` + `checkpoint_stop.py` | Only when it fires | Stop: nudges a checkpoint once context is large and the session never went idle |
-| `hooks/write-settings-hook.py` | No | Edits settings.json for all three hook installers |
-| `install-usage-hook.sh` | No | Registers the usage-window hook |
-| `hooks/install-plan-hook.sh` | No | Registers the plan-written hook |
-| `hooks/install-checkpoint-hook.sh` | No | Registers the checkpoint-stop hook |
+| `hooks/write-settings-hook.py` | No | Edits settings.json; called once by `install-hooks.sh` with all four hook entries |
+| `install-hooks.sh` | No | Registers (or removes) all four hooks above |
 | `usage/notes.md` | No | Committed conclusions about the credit window |
 | `usage/events.jsonl` | No | Raw usage observations, appended by agents — gitignored |
 | `README.md` | No | This file |
@@ -78,8 +74,8 @@ never be mistaken for a rule.
 
 ## The plan-written hook
 
-`hooks/install-plan-hook.sh` registers a `PostToolUse` hook on `Write`. When the
-file written is under `docs/plans/`, it adds one paragraph of context: make the
+`install-hooks.sh` registers a `PostToolUse` hook on `Write`. When the file
+written is under `docs/plans/`, it adds one paragraph of context: make the
 record durable, commit, then tell the user this is a good moment to `/clear`.
 
 That moment is when a session's context is worth least and costs most — what
@@ -93,8 +89,8 @@ from a plan is routine, replacing the file is not.
 
 ## The checkpoint-stop hook
 
-`hooks/install-checkpoint-hook.sh` registers a `Stop` hook. `usage-gate.sh`'s
-own carried-context nudge only fires once a session goes idle past the
+`install-hooks.sh` also registers a `Stop` hook. `usage-gate.sh`'s own
+carried-context nudge only fires once a session goes idle past the
 prompt-cache TTL — a session that stays continuously active never crosses that
 gate no matter how large its context gets. This hook is the complementary
 trigger: at the end of every turn, it checks context size alone, and once a
@@ -118,14 +114,8 @@ is read in full at the start of every session, so length is a real cost.
 ## The usage-window hook
 
 `usage-limits-and-context.md` asks agents to predict when shared credit runs
-out. `install-usage-hook.sh` installs a second `SessionStart` hook that answers
-that question **before the model runs**, which is the only moment the answer is
-free:
-
-```sh
-./install-usage-hook.sh              # install / update
-./install-usage-hook.sh --uninstall  # remove, leaving the plan hook alone
-```
+out. `install-hooks.sh` also registers a `SessionStart` hook that answers that
+question **before the model runs**, which is the only moment the answer is free.
 
 It reads two local sources and prints a few lines of context:
 
@@ -154,13 +144,16 @@ never fails to start because of it.
 Measured on this machine at install time: **0.22 s** over 85 MB of transcripts,
 after old lines are rejected on the raw text rather than parsed.
 
+Paired with it is the `UserPromptSubmit` gate (`usage-gate.sh`), which drops a
+prompt outright rather than spend a request against a window already spent.
+
 ## Caveats
 
 - **Whether subagents inherit `~/.claude/rules` the same way a main session
   does is unconfirmed here** — see [Symlinks](#symlinks).
-- **Project settings can't override the usage/plan/checkpoint hooks.** All
-  three are installed in user settings and fire everywhere. A project that
-  needs different behavior should say so in its own `CLAUDE.md`.
+- **Project settings can't override these hooks.** All four are installed in
+  user settings and fire everywhere. A project that needs different behavior
+  should say so in its own `CLAUDE.md`.
 
 ## Skills
 
