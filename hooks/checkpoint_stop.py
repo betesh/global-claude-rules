@@ -13,14 +13,24 @@ equivalent of `stop_hook_active` to break a loop on its own, and blocking a
 stop forces another turn whose own request only adds to the context this hook
 is reacting to.
 
-CHECKPOINT_AT starts equal to CARRY_AT (usage_common.py) as a placeholder, not
-a measurement: CARRY_AT was picked for a session that has already gone idle,
-and this trigger fires on one that never does, so nothing yet confirms the two
-belong at the same number. Firing logs the context size alongside
-`checkpoint-nudged`; a later `cleared` event (usage_report.py, logged when a
-session's SessionStart fires with source `clear`) links back to whichever
-nudge preceded it, which is what judging a threshold by its actual outcome —
-not just how often it fires — needs.
+CHECKPOINT_AT was originally set equal to CARRY_AT (usage_common.py) as a
+placeholder, not a measurement: CARRY_AT was picked for a session that has
+already gone idle, and this trigger fires on one that never does, so nothing
+confirmed the two belonged at the same number. Every real firing so far
+landed at 71,675-113,950 tokens and was accepted (a `cleared` event followed
+within minutes), which says nudging works in that range but nothing about
+whether 50,000 was the right place to start — there was no data below it.
+CHECKPOINT_AT is now set to 35,000 instead: still a guess, not a measurement,
+chosen to sit above this repo's measured ~30,000-token floor (so it doesn't
+fire before any real work happens) while being low enough to bracket the
+missing range. What would confirm or replace this guess is the next batch of
+`checkpoint-nudged` events landing lower than the old range: if they're still
+followed by a quick `cleared`, the threshold can drop further; if a nudge
+starts going unanswered, that's the knee. Firing logs the context size
+alongside `checkpoint-nudged`; a later `cleared` event (usage_report.py,
+logged when a session's SessionStart fires with source `clear`) links back to
+whichever nudge preceded it, which is what judging a threshold by its actual
+outcome — not just how often it fires — needs.
 
 Never fails a turn: any error exits 0 with no output.
 """
@@ -31,7 +41,7 @@ import sys
 
 import usage_common as uc
 
-CHECKPOINT_AT = int(os.environ.get("CLAUDE_CHECKPOINT_CONTEXT_TOKENS", str(uc.CARRY_AT)))
+CHECKPOINT_AT = int(os.environ.get("CLAUDE_CHECKPOINT_CONTEXT_TOKENS", "35000"))
 
 MESSAGE = (
     "Context just crossed {tokens:,} tokens with no idle gap to prompt a checkpoint on its own. "
