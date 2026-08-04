@@ -76,7 +76,7 @@ never be mistaken for a rule.
 ## The checkpoint-stop hook
 
 `install-hooks.sh` also registers a `Stop` hook. `usage-gate.sh`'s own
-carried-context nudge only fires once a session goes idle past the
+`cache-expired` nudge only fires once a session goes idle past the
 prompt-cache TTL — a session that stays continuously active never crosses that
 gate no matter how large its context gets. This hook is the complementary
 trigger: at the end of every turn, it checks context size alone, and once a

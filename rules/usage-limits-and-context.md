@@ -26,10 +26,12 @@ whatever else that kind carries — that order is what makes rows comparable at 
 |---|---|---|---|
 | `usage-report` | `pct`, `renewsInMin` | the user, via `python3 usage/log-pct.py PCT [RENEWS_IN_MIN]` | a fresh reading exists — no agent or request needed |
 | `renewed` | `startedT` | the hook, automatically | the first session to notice the current boundary isn't logged yet |
-| `carried-context` | — | the hook, automatically | it gates a session's first prompt of a window for carrying too much history in |
+| `cache-expired` | — | the hook, automatically | a session idle past the prompt-cache TTL resumes holding enough context to be worth clearing |
+| `checkpoint-nudged` | `context` | the hook, automatically | a continuously-active session (no idle gap) crosses the same context threshold |
 
-Never write `usage-report`, `renewed`, or `carried-context` yourself — all three exist to be read,
-not appended by you. Token counts, request counts, when the window opened, which sessions ran — all
+Never write `usage-report`, `renewed`, `cache-expired`, or `checkpoint-nudged` yourself — all four
+exist to be read, not appended by you. Token counts, request counts, when the window opened, which
+sessions ran — all
 of it is in the transcripts already and can be reconstructed for any past moment, so a reported
 percentage needs no token count taken beside it.
 

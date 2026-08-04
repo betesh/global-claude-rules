@@ -53,10 +53,26 @@ intact, while every ~140–146-min gap observed (five instances) came back with 
 a cache-write ≈ the whole prior conversation. Crossing it turns the next request's cache-write into
 a one-time cost ≈ everything carried forward — why cache-write arrives in bursts rather than steadily.
 
-`CARRY_AT` in `hooks/usage_common.py` and `CHECKPOINT_AT` in `hooks/checkpoint_stop.py` are both
-still guesses. Two genuine TTL crossings carried 231,467 and 71,903 tokens respectively — both
-comfortably above `CARRY_AT`'s 50,000 default, so it isn't contradicted, but two points can't locate
-the real knee below which clearing saves less than the interruption costs.
+`CARRY_AT` in `hooks/usage_common.py` (default 50,000) is still a guess. Four genuine TTL crossings
+measured directly from transcripts so far, all well above it:
+
+| idle gap | context carried | outcome |
+|---:|---:|---|
+| 141.3 min | 231,467 | rewrite paid |
+| 146.4 min | 71,903 | rewrite paid |
+| 150.8 min | 162,577 | denied, session abandoned rather than retried |
+| 178.8 min | 128,855 | denied once, resubmitted 7s later, rewrite paid |
+
+All four are comfortably above 50,000, so the default isn't contradicted, but none is anywhere near
+it either — still no point that locates the actual knee below which clearing saves less than the
+interruption costs.
+
+`CHECKPOINT_AT` in `hooks/checkpoint_stop.py` (same 50,000 default, continuously-active sessions
+only) has 15 `checkpoint-nudged` firings on record, context 50,709–298,209 at first crossing. The
+minimum (50,709) confirms the default is the threshold actually in effect; it says nothing about
+whether 50,000 is the *right* one, since firing "past the threshold" by design can't reveal whether
+an earlier or later nudge would have been better — that needs outcome data (did the nudge lead to a
+`/clear` that was worth the interruption?), which isn't logged anywhere yet.
 
 ## The PreToolUse budget gate
 
