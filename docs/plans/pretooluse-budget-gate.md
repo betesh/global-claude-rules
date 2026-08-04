@@ -12,31 +12,6 @@ current context size (last request's `input + cache_write + cache_read`, the sam
 `session_carry()` in `hooks/usage_common.py` already reads) gives calls-remaining directly — no
 need to guess how fast the session is moving.
 
-## Phase 1 — confirm what a `PreToolUse` firing corresponds to
-
-- [ ] Trigger a turn that issues multiple tool calls in one assistant message (parallel tool use)
-      and check whether `PreToolUse` fires once per `tool_use` block against one shared
-      `requestId`, or once per request.
-      - This decides the denominator: if several calls share one request's cost, budget must be
-        charged once per request, not once per `PreToolUse` firing, or the estimate overcounts by
-        however many calls are batched together.
-
-## Phase 2 — build the hook
-
-- [ ] Add a `PreToolUse` hook (e.g. `hooks/usage_tool_gate.py`) that reads `window_state()` from
-      `hooks/usage_common.py` for `remaining`, reads the last request's context size from the
-      session's own transcript, and denies the call — with the renewal time in its reason — once
-      calls-remaining drops under the margin Phase 3 sets.
-      - The deny reason must point at sleeping until `renews`, not at retrying: this hook has no
-        way to make the agent wait, only to refuse. The actual pause is the agent's own
-        foreground-sleep behavior (`rules/usage-limits-and-context.md`), triggered by reading the
-        reason.
-      - Decide matcher scope: gating every tool call is simplest, but check whether scoping to a
-        subset (e.g. excluding cheap read-only calls) changes the outcome before assuming it
-        should — a call denied one tick before a genuinely expensive one buys nothing.
-- [ ] Register it the way `install-hooks.sh` already registers the other four events, adding a
-      `PreToolUse` entry to that script rather than a new installer.
-
 ## Phase 3 — measure the margin
 
 - [ ] Because context grows every call, calls-remaining computed against the *current* context size

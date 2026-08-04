@@ -19,7 +19,7 @@ One thing still needs a script, because it edits `settings.json` rather than
 just placing a symlink:
 
 ```sh
-./install-hooks.sh            # registers all three hooks below
+./install-hooks.sh            # registers all four hooks below
 ./install-hooks.sh --uninstall
 ```
 
@@ -51,10 +51,11 @@ up `~/.claude/rules` the same way a main session does hasn't been confirmed here
 | `skills/*` | Only when invoked | Situational instructions, via the `~/.claude/skills` symlinks |
 | `hooks/usage-window.sh` + `usage_report.py` | No | SessionStart: emits the credit-window state as session context |
 | `hooks/usage-gate.sh` + `usage_gate.py` | No | UserPromptSubmit: drops a prompt once the window is spent |
+| `hooks/usage-tool-gate.sh` + `usage_tool_gate.py` | Only when it fires | PreToolUse: denies an individual tool call once the window's estimate is close enough to the gate that this call could be the one that crosses it |
 | `hooks/usage_common.py` | No | Log/transcript logic shared by the report and gate scripts above |
 | `hooks/checkpoint-stop.sh` + `checkpoint_stop.py` | Only when it fires | Stop: nudges a checkpoint once context is large and the session never went idle |
-| `hooks/write-settings-hook.py` | No | Edits settings.json; called once by `install-hooks.sh` with all three hook entries |
-| `install-hooks.sh` | No | Registers (or removes) all three hooks above |
+| `hooks/write-settings-hook.py` | No | Edits settings.json; called once by `install-hooks.sh` with all four hook entries |
+| `install-hooks.sh` | No | Registers (or removes) all four hooks above |
 | `usage/notes.md` | No | Committed conclusions about the credit window |
 | `usage/events.jsonl` | No | Raw usage observations, appended by agents — gitignored |
 | `README.md` | No | This file |
@@ -87,6 +88,31 @@ It fires at most once per session — it logs a `checkpoint-nudged` event and
 checks for one before firing again, since blocking a `Stop` forces another turn
 whose own request only adds to the context that triggered it, and nothing else
 would stop it asking again.
+
+## The tool gate
+
+`usage-gate.sh` only checks the estimate once per prompt, at the moment it is
+submitted. A prompt that starts safely below `GATE_AT_PCT` can go on to
+dispatch many tool calls — each one its own request that resends the whole
+conversation — so the estimate can cross the gate mid-flight, and the next
+check only comes after it already has.
+
+`install-hooks.sh` also registers a `PreToolUse` hook (`usage-tool-gate.sh`)
+that closes that gap: it fires before every individual tool call and denies it
+once too few requests' worth of budget remain, computed as
+`(GATE_AT_PCT - estimate) × per_pct` divided by the last request's context size
+(read straight from the transcript, the same figure `usage-window.sh` already
+reports). It fires once per tool call, but several calls issued in parallel
+share one request's cost, so it recomputes calls-remaining fresh on every
+firing rather than counting firings down — siblings in one batch always reach
+the same decision.
+
+Its deny reason points at sleeping until the window renews, per
+`usage-limits-and-context.md` — the hook itself has no way to make a session
+wait, only to refuse. `CLAUDE_TOOL_GATE_MARGIN_CALLS` (default 5) sets how many
+calls of headroom it insists on; the default is an unmeasured guess pending a
+live observation of how far its denial lands from where `usage-gate.sh` would
+have refused anyway.
 
 ## Adding a rule
 
@@ -134,7 +160,7 @@ prompt outright rather than spend a request against a window already spent.
 
 - **Whether subagents inherit `~/.claude/rules` the same way a main session
   does is unconfirmed here** — see [Symlinks](#symlinks).
-- **Project settings can't override these hooks.** All three are installed in
+- **Project settings can't override these hooks.** All four are installed in
   user settings and fire everywhere. A project that needs different behavior
   should say so in its own `CLAUDE.md`.
 
