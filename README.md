@@ -190,4 +190,5 @@ directory.
 |---|---|
 | `repo-plans` | Plans live in the owning repo's `docs/plans/`, shrink every commit, and are deleted when done |
 | `stash-dont-discard` | Stash experimental work you might return to; never `git checkout --` it |
+| `render-before-concluding` | Render several transformations of an ambiguous visual/spatial region before concluding, instead of trusting a single rendering or algorithmic proxy |
 | `collapse-passthroughs` | Delete no-op wrappers and rename-only aliases in the change set that creates them |
