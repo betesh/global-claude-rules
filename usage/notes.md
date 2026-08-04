@@ -59,12 +59,29 @@ measurement yet, only the acceptance/timing data already in the table above.
 `pct = intercept + tokens/per_pct`, fit by `calibrate()` in `hooks/usage_common.py`. Four windows
 measured so far:
 
-| window | readings | per_pct | intercept | max residual | cache-write share |
-|---|---:|---:|---:|---:|---:|
-| A (08-03 14:11) | 7 | 821,796 | 4.0 | 9.0pp | 1.9% |
-| B (08-03 19:12) | 3 | 941,707 | 14.8 | 0.9pp | 2.4% |
-| C (08-04 00:13) | 9 | 1,080,381 | 21.4 | 7.7pp | 2.2% |
-| D (08-04 05:14) | 9 | 1,140,912 | 19.7 | 6.6pp | 4.0% |
+| window | readings | per_pct | intercept | max residual | cache-write share | true per_pct | vs true |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| A (08-03 14:11) | 7 | 821,796 | 4.0 | 9.0pp | 1.9% | 708,593 | +16.0% |
+| B (08-03 19:12) | 3 | 941,707 | 14.8 | 0.9pp | 2.4% | 619,291 | +52.1% |
+| C (08-04 00:13) | 9 | 1,080,381 | 21.4 | 7.7pp | 2.2% | 822,662 | +31.3% |
+| D (08-04 05:14) | 9 | 1,140,912 | 19.7 | 6.6pp | 4.0% | n/a | — |
+
+`true per_pct` only exists for windows the user confirmed running to exhaustion (A, B, C — see the
+`exhausted?` column below): its final transcript total *is* the 100% point, so `true per_pct =
+final total / 100` needs no fit at all. D has no such ground truth — it never reached 100%, so
+there's nothing to divide by.
+
+**The fitted `per_pct` overshoots true per_pct in every exhausted window, by a lot (+16–52%).**
+This isn't the residual the fit already reports against its own readings (the `max residual`
+column) — it's checked against the one number in each window that isn't a fit at all. Per-reading,
+the gap widens and narrows unevenly rather than shrinking as the window goes on: window A's readings
+run from +6.1pp too high early on to −14.2pp too low mid-window before landing at −1.5pp at the very
+last reading; C swings from +8.9pp to +17.3pp and back down to −2.2pp. A systematic overshoot in
+`per_pct` of this size means `estimate ~X% used` (what `usage_report.py` prints at every
+`SessionStart`) understates real usage in exactly the windows where understating it matters most —
+the ones about to run out. Not yet root-caused; the `intercept` term (assumed pre-window spend the
+scan can't see) is the leading suspect, since a too-high intercept is exactly what would need a
+too-high `per_pct` to keep fitting the same readings.
 
 (D's row moved from 6 readings/752,323/12.5 to 9 readings/1,140,912/19.7 as more of that window's
 own readings came in — a 52% swing in `per_pct` from within one window, not between windows. That
