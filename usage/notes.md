@@ -89,3 +89,62 @@ growing between calls; that measurement contradicts it — most of the drift thi
 growth. `MARGIN_CALLS=5` still caught the crossing with single-digit headroom, so the default
 stands from this trial, but the reason to treat `calls_remaining` as an upper bound is concurrent
 sessions first, own-context growth second.
+
+## A scripted `claude -p` run is not a stand-in for the interactive floor
+
+Measured 2026-08-04, this repo's directory, default settings, three separate `claude -p "Reply
+with exactly: ok" --output-format json` runs: floor (`cache_creation_input_tokens +
+cache_read_input_tokens` on the single request) came back 29,213 / 29,205 / 29,206 — tight
+variance, but ~7,000 tokens (32%) above the interactive baseline of 21,905–22,188 recorded above.
+Print mode sends a different preamble than an interactive session (fewer interactive-only tools,
+by the size of it something else added), so **absolute floor numbers from `-p` don't transfer to
+interactive figures** — only deltas between two scripted runs are trustworthy, and only against
+each other.
+
+## Denying deferred tools trims ~890 tokens, not the 16.7K candidate
+
+Scripted (`-p`, same repo dir), denying the 21 deferred tools listed in a fresh session's
+system-reminder (`CronCreate`, `CronDelete`, `CronList`, `DesignSync`, `EndConversation`,
+`EnterPlanMode`, `EnterWorktree`, `ExitPlanMode`, `ExitWorktree`, `Monitor`, `NotebookEdit`,
+`PushNotification`, `RemoteTrigger`, `SendMessage`, `TaskCreate`, `TaskGet`, `TaskList`,
+`TaskOutput`, `TaskStop`, `TaskUpdate`, `WebFetch`, `WebSearch`) via `--settings
+'{"permissions":{"deny":[...]}}'`: floor 28,317 / 28,320 (two runs) against the 29,205–29,213
+baseline above — a ~890-token drop (~3%), not the 16.7K `/context` attributes to deferred tools.
+The deferred-tool mechanism already keeps only a name and one-line description in context and
+loads full schemas on demand via `ToolSearch`; denying a tool blocks the call but there is no 16.7K
+of schema text left to remove this way. **Candidate closed: not adjustable from `permissions.deny`.**
+
+## The "read six files" round trip does not happen in the installed version
+
+`~/.claude/rules` is a symlink to this repo's `rules/`. Read directly from this session's own
+transcript (`866ef482-…jsonl`): the first user message is the task prompt, and the very next
+assistant message already carries the full rule text in its cached prefix — no preceding
+`tool_use`/`tool_result` pair for a `Read` of any rule file. Rule text arrives inlined as a
+system-reminder block on the first request, the same way project `CLAUDE.md` does, not through an
+instruction to read six files. On Claude Code 2.1.221 with the symlink in place, that concern is
+already moot — there is no round trip left to remove.
+
+## Cache-hit vs. cache-miss is already exposed per request
+
+Every request's `usage` already separates them: `cache_read_input_tokens` is the hit,
+`cache_creation_input_tokens` is the miss/write, further split into
+`cache_creation.ephemeral_1h_input_tokens` / `ephemeral_5m_input_tokens`. `context-cost.py` and
+`usage_common.py` already key off these fields. Nothing further to build here.
+
+## `--safe-mode` floor, and what the customization stack costs on top (scripted only)
+
+Scripted, `--safe-mode` (CLAUDE.md, skills, plugins, hooks, MCP, and the `~/.claude/rules` symlink
+all disabled): floor 17,948 — the irreducible base for this version (system prompt + always-loaded
+tool schemas + deferred-tool names). Against the 29,205–29,213 full-setup scripted floor, the whole
+customization stack costs ≈11,260 scripted tokens. Isolating this repo's own `CLAUDE.md` alone
+(scripted, this repo's dir vs. an empty scratch dir, rules/hooks unchanged): 29,205–29,213 vs.
+27,984 → ≈1,225 tokens for the project `CLAUDE.md` file (3,135 bytes).
+
+Two attempts to isolate hooks alone did not work and are recorded so they aren't retried the same
+way: `--settings '{"hooks":{}}'` left the SessionStart hook firing anyway (confirmed in a `-d api`
+debug log — the CLI `--settings` JSON does not override the `hooks` key already in
+`~/.claude/settings.json`), and `--setting-sources project,local` produced a result polluted by a
+partial cross-session cache hit (15,912 of its 30,750 total came from `cache_read`, matching another
+run's cached prefix, not a clean miss). Neither isolates hooks' own contribution; a clean figure for
+that, and a true interactive (non-scripted) per-configuration sweep to match the 21,905–22,188
+baseline, are still open.

@@ -9,29 +9,21 @@ output tokens were 44% of all requests and 43% of context spend, and `Edit` inpu
 ## Phase 2 — find what the floor is actually made of, and whether any of it is ours
 
 The floor was 21,905 / 22,109 / 22,166 / 22,188 tokens across four sessions — stable enough that a
-difference of a thousand tokens between two configurations is a real signal.
+difference of a thousand tokens between two configurations is a real signal. `permissions.deny` on
+deferred tools, the session-start rule load, and cache-hit/miss visibility are answered — see
+`usage/notes.md`; none of them move the floor enough to act on, and cache-hit/miss is already
+exposed per request.
 
-- [ ] Measure the floor per configuration by reading the first request's context out of the
-      transcript it writes, one short prompt per run.
-      - Vary one thing at a time from the current setup: an empty directory (no project
-        `CLAUDE.md`), hooks disabled, and each candidate below. Record every number with the
-        configuration beside it in `usage/notes.md`.
-      - Confirm first that a scripted run's floor matches the interactive figures above. If it does
-        not, the harness sends a different preamble for it and every delta measured this way is
-        against a different baseline — say so and measure interactively instead.
-- [ ] Establish whether deferred tool schemas can be dropped, which is the largest candidate:
-      `/context` attributed 16.7K to them against 10.3K for the always-loaded tools.
-      - `permissions.deny` is the only lever in reach; whether denying a tool removes its schema
-        from the preamble or merely blocks the call is exactly what the measurement answers.
-      - If the floor does not move, record that the preamble is not adjustable from settings and
-        stop — the remaining items in this phase are then dead too.
-- [ ] Measure what the session-start rule load costs as delivered, against the same text supplied
-      directly as context by the hook.
-      - Today it is an instruction to read six files: one round trip, plus six tool calls and six
-        results framing ~3K of rule text that then sits in context for the rest of the session.
-      - Only the framing is in scope, not the rule text: the saving to measure is the six calls and
-        six results, against ~3K that gets re-sent either way.
-- [ ] Check whether transcripts distinguish between cache-hit and cache-miss.  Separating those 2 would make it clear how much we'll save by clearing more often
+- [ ] Measure the floor per configuration **interactively**, not scripted: a scripted `claude -p`
+      run's floor (29,205–29,213, three runs, this repo's dir) sits ~7,000 tokens above the
+      21,905–22,188 interactive baseline above, so absolute numbers from `-p` don't transfer — see
+      `usage/notes.md`. Vary one thing at a time (empty directory, hooks alone, each candidate) and
+      record every number with its configuration in `usage/notes.md`.
+      - Isolating hooks alone is still open: `--settings '{"hooks":{}}'` does not override
+        `~/.claude/settings.json`'s `hooks` key (the SessionStart hook still fired, confirmed via a
+        `-d api` debug log), and `--setting-sources project,local` came back polluted by a partial
+        cross-session cache hit. Find a way to disable only hooks, or accept that this needs a
+        human-attended interactive session rather than a scripted one.
 
 ## Phase 3 — establish how much of the request count is avoidable
 
