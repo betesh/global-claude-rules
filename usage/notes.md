@@ -67,3 +67,25 @@ saves less than the interruption costs. As more TTL are observed, we'll be able 
 
 CHECKPOINT_AT in hooks/checkpoint_stop.py is a guess. As more data is collected, it needs to be refined
 based a measured value of how much context is enough justify the cost of clearing.
+
+## The PreToolUse budget gate fires ahead of the prompt-level gate — one trial, gap dominated by concurrent sessions
+
+Measured by temporarily overriding `CLAUDE_USAGE_GATE_PCT` to 70.4 (just above the live estimate of
+69.7% at the time) and invoking `hooks/usage_tool_gate.py` and `hooks/usage_gate.py` directly as
+subprocesses against the real live transcript and event log — not a natural crossing of the real
+97% ceiling. One trial, 2026-08-03, several other sessions concurrently active in the same window.
+
+`usage_tool_gate.py` denied first, at the same transcript snapshot where `usage_gate.py` did not yet
+(estimate 70.33% < the 70.4% test ceiling), with `calls_remaining` already down to ~1.0 — single-digit,
+not tens, matching the plan's success criterion. By the next check moments later the estimate had
+jumped to 73.0%, 2.6 points past where the PreToolUse hook had already intervened.
+
+That 2.6-point jump was not from this session's own calls: at ~68,929 tokens/call and 941,707
+tokens/%, one session's own calls move the estimate only ~0.07 points each — far too little to
+explain it across the handful of tool calls between checks. The `MARGIN_CALLS` comment in
+`usage_tool_gate.py` had attributed the slack in `calls_remaining` to *this session's* context
+growing between calls; that measurement contradicts it — most of the drift this trial came from
+*other* concurrent sessions spending against the same shared window, not from this session's own
+growth. `MARGIN_CALLS=5` still caught the crossing with single-digit headroom, so the default
+stands from this trial, but the reason to treat `calls_remaining` as an upper bound is concurrent
+sessions first, own-context growth second.

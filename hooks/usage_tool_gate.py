@@ -35,11 +35,11 @@ import sys
 
 import usage_common as uc
 
-# Calls-remaining must clear this before a firing stops denying. Unmeasured:
-# nothing has yet been observed crossing GATE_AT_PCT with this hook installed,
-# so there is no data yet on how far its denial actually lands from where
-# usage_gate.py would have refused anyway — usage/notes.md records that gap
-# once it is. Deliberately generous until it is.
+# Calls-remaining must clear this before a firing stops denying. Measured once
+# (usage/notes.md): fired with single-digit calls_remaining, ahead of where
+# usage_gate.py would have caught it — the gap was dominated by concurrent
+# sessions' spend against the shared window, not this session's own context
+# growth.
 MARGIN_CALLS = float(os.environ.get("CLAUDE_TOOL_GATE_MARGIN_CALLS", "5"))
 
 
