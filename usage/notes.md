@@ -14,7 +14,16 @@ knowledge that doesn't live anywhere else.
 The window is rolling, exactly 5 hours, starting at the first tool call after the previous one
 ends. Readings toward goal 1 are in `usage/events.jsonl` (`usage-report` and `renewed` lines).
 
-## Tokens-per-percent varies window to window; cause not yet identified
+## Still gathering data on
+
+| open question | current evidence | what's needed |
+|---|---|---|
+| Given that `per_pct` vary ~40% window to window, how many data point for the current window is enough to model per_pct for the remainder of the window? | 4 windows, 694K–1,080K tokens/%; model mix, cache-write share, and session count all ruled out as the sole cause | more windows; compare a bursty sub-interval's fit against its window's overall fit |
+| Where's the `CARRY_AT` knee (below which clearing isn't worth the interruption)? | 4 real TTL crossings, 71,903–231,467 tokens carried — all far above the 50,000 default | a crossing that carries less context, to bracket the knee from below |
+| Is `CHECKPOINT_AT`'s 50,000 default right? | 1 correlated `cleared` outcome so far | nudge→clear pairs to accumulate |
+| Is `MARGIN_CALLS=5` the right tool-gate headroom? | 1 forced trial: denied at `calls_remaining ≈ 1.0`, ahead of the prompt gate | an unforced, natural ceiling crossing |
+
+## Calibration: tokens-per-percent by window
 
 `pct = intercept + tokens/per_pct`, fit by `calibrate()` in `hooks/usage_common.py`. Four windows
 measured so far:
@@ -30,12 +39,10 @@ measured so far:
 is sometimes tight (B, D: under 2.5pp) and sometimes not (A, C: 7–9pp); the worst residuals in both
 A and C land near bursts of fresh, cache-miss-heavy sessions (many short-lived test sessions in C;
 a TTL-crossing cache-expiry in A), suggesting the *local* rate shifts with what kind of tokens are
-being spent, not just calendar time. Tested and ruled out as the sole explanation: model mix (all
-four windows are 100% `claude-sonnet-5`) and cache-write share alone (1.9–4.1%, doesn't order the
-same way `per_pct` does — C has a lower cache-write share than B but a higher `per_pct`). Session
-count also doesn't order consistently with `per_pct`. **No pattern identified yet** — keep reporting
-% readings until one window's internal rate can be checked against another's directly (e.g. by
-comparing `per_pct` fit over just the bursty sub-interval against the window's overall fit).
+being spent, not just calendar time. Ruled out as the sole cause: model mix (all four windows are
+100% `claude-sonnet-5`) and cache-write share alone (1.9–4.1%, doesn't order the same way `per_pct`
+does — C has a lower cache-write share than B but a higher `per_pct`); session count doesn't order
+consistently with it either.
 
 **Never drop the intercept** when fitting: forcing the line through the origin pushes pre-window
 spend the transcript scan can't see into the slope instead, which is what made an earlier one-shot
@@ -76,22 +83,7 @@ measured directly from transcripts so far, all well above it:
 | 178.8 min | 128,855 | denied once, resubmitted 7s later, rewrite paid |
 
 All four are comfortably above 50,000, so the default isn't contradicted, but none is anywhere near
-it either — still no point that locates the actual knee below which clearing saves less than the
-interruption costs.
-
-`CHECKPOINT_AT` in `hooks/checkpoint_stop.py` (same 50,000 default, continuously-active sessions
-only) has 15 `checkpoint-nudged` firings on record, context 50,709–298,209 at first crossing. The
-minimum (50,709) confirms the default is the threshold actually in effect; it says nothing about
-whether 50,000 is the *right* one, since firing "past the threshold" by design can't reveal whether
-an earlier or later nudge would have been better — that needs outcome data (did the nudge lead to a
-`/clear` that was worth the interruption?).
-
-That outcome data now gets logged (`cleared` event, `usage_report.py`, fired on `SessionStart`
-source `clear`) — but not linked by `session_id`. First real instance caught it: a
-`checkpoint-nudged` and the `cleared` event 55 seconds later carried two *different* session ids.
-`/clear` issues a fresh one; the terminal's underlying `claude` process doesn't change, so
-`usage_common.claude_pid()` walks the hook's own process ancestry to that pid instead and links on
-that. Fixed before more than one uncorrelated data point accumulated.
+it either.
 
 ## The PreToolUse budget gate
 
