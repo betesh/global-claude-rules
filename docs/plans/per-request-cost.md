@@ -6,20 +6,6 @@ and the payloads that edits leave behind. Measured over one window (140 requests
 the floor was 22.1K per request (35% of what the attribution can see), requests producing under 400
 output tokens were 44% of all requests and 43% of context spend, and `Edit` inputs carried 746K.
 
-## Phase 4 — stop repeated edits to one file from accumulating
-
-`Edit` inputs cost 746K in one window, 645K of it in a single session, because every `old_string`
-and `new_string` stays in context for every request that follows it.
-
-- [ ] Measure, per file per session, the number of edits and the total edit payload against the
-      file's own size.
-      - The case worth acting on is a file edited enough times that the payloads exceed rewriting
-        it once. If no file in a measured window reaches that, say so and close the phase.
-- [ ] If they do, add a `PreToolUse` hook on `Edit` that counts edits per file per session and
-      warns past the measured crossover.
-      - The count and the threshold live in the hook, which costs no context, rather than in a
-        rule that every session pays for.
-
 ## Success criteria
 
 - Tokens per percent of window improves against the figure recorded before the change, over at

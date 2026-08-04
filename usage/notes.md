@@ -252,3 +252,26 @@ this plan's own scratch work (many one-off investigation reads/greps in quick su
 of ordinary work, and the system prompt already tells the model to batch independent calls when it
 recognizes them as independent; the gap here looks like a one-off lapse, not a pattern with legs.
 **Decision: no rule** — not enough evidence this recurs outside how this specific session behaved.
+
+## Phase 4: `Edit` payload crosses a file's own size at 4–43 edits, not a fixed count
+
+The just-closed window (00:13–05:13) was light on editing — 40 `Edit` calls, 92,295 payload chars
+total across every session on the machine, only 2 of 16 (session, file) pairs over 1x (both
+marginal: 1.39x and 2.54x, both small files) — far short of this plan's original "746K in one
+window, 645K in a single session" headline, so that finding came from a heavier window than the one
+available to re-measure now.
+
+Scanning every retained transcript instead (not scoped to one window) found real, consequential
+cases in another project's session: `image-orientation.js` (43 edits, 1.47x its own size),
+`image-text-crop.js` (19 edits, 2.41x), `text-lines.js` (20 edits, 2.17x), `text-bounds.js` (only 4
+edits, already 1.29x, in two separate sessions independently). **Edit count alone doesn't predict
+the crossover** — 4 edits crossed it in one file, 43 in another — because it depends on how big each
+edit is relative to the file, not how many there are. Payload-vs-size, not a call count, is the
+right thing for a hook to track.
+
+**Decision: added the hook.** `hooks/edit_payload_warn.py` + `edit-payload-warn.sh`, registered by
+`install-hooks.sh` as a `PreToolUse` hook matching `Edit` (see `README.md`). Stateless like
+`usage_tool_gate.py`: it recomputes the running total from the session's own transcript on every
+firing rather than counting, compares it to `os.path.getsize(file_path)`, and adds a non-blocking
+note past the crossover. Costs no context unless it fires. Verified against both a small file with
+enough payload to cross (fires) and a larger file with a small edit (silent, exit 0).

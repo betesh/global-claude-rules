@@ -19,7 +19,7 @@ One thing still needs a script, because it edits `settings.json` rather than
 just placing a symlink:
 
 ```sh
-./install-hooks.sh            # registers all four hooks below
+./install-hooks.sh            # registers all five hooks below
 ./install-hooks.sh --uninstall
 ```
 
@@ -52,10 +52,11 @@ up `~/.claude/rules` the same way a main session does hasn't been confirmed here
 | `hooks/usage-window.sh` + `usage_report.py` | No | SessionStart: emits the credit-window state as session context |
 | `hooks/usage-gate.sh` + `usage_gate.py` | No | UserPromptSubmit: drops a prompt once the window is spent |
 | `hooks/usage-tool-gate.sh` + `usage_tool_gate.py` | Only when it fires | PreToolUse: denies an individual tool call once the window's estimate is close enough to the gate that this call could be the one that crosses it |
+| `hooks/edit-payload-warn.sh` + `edit_payload_warn.py` | Only when it fires | PreToolUse (matcher `Edit`): warns, without blocking, once one file's cumulative `Edit` payload this session exceeds the file's own size |
 | `hooks/usage_common.py` | No | Log/transcript logic shared by the report and gate scripts above |
 | `hooks/checkpoint-stop.sh` + `checkpoint_stop.py` | Only when it fires | Stop: nudges a checkpoint once context is large and the session never went idle |
-| `hooks/write-settings-hook.py` | No | Edits settings.json; called once by `install-hooks.sh` with all four hook entries |
-| `install-hooks.sh` | No | Registers (or removes) all four hooks above |
+| `hooks/write-settings-hook.py` | No | Edits settings.json; called once by `install-hooks.sh` with all five hook entries |
+| `install-hooks.sh` | No | Registers (or removes) all five hooks above |
 | `usage/notes.md` | No | Committed conclusions about the credit window |
 | `usage/events.jsonl` | No | Raw usage observations, appended by agents — gitignored |
 | `README.md` | No | This file |
@@ -113,6 +114,21 @@ wait, only to refuse. `CLAUDE_TOOL_GATE_MARGIN_CALLS` (default 5) sets how many
 calls of headroom it insists on; the default is an unmeasured guess pending a
 live observation of how far its denial lands from where `usage-gate.sh` would
 have refused anyway.
+
+## The edit-payload warning
+
+Every `Edit`'s `old_string`/`new_string` stays in context for every request
+that follows it, so a file edited piecemeal enough times can end up costing
+more than a single `Write` of the whole file would have (measured cases in
+`usage/notes.md` at 1.3–2.5x a file's own size after a few dozen edits).
+
+`install-hooks.sh` registers a `PreToolUse` hook (`edit-payload-warn.sh`)
+matching only `Edit`. It recomputes, from this session's own transcript, the
+running total of `old_string`+`new_string` lengths against one file, and once
+that total (including the call about to run) exceeds the file's current size
+on disk, it adds a note suggesting a `Write` instead — without blocking the
+edit. Stateless like the tool gate above: no counter to drift, just the
+transcript read fresh each time.
 
 ## Adding a rule
 
