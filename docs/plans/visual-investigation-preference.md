@@ -1,0 +1,9 @@
+# Visual investigation preference
+
+## Phase 1 — Add a skill
+
+- [ ] **Add a skill to render several visual transformations before concluding on an ambiguous shape/pattern problem**
+  - Observed in a project that OCR's images. Agent session investigated whether ink blobs were fused letters: generated multiple renders of the same ambiguous region (raw crop, ink-mask overlay, distance-transform thickness heatmap, contrast-stretched grayscale, column-density profile strip). The user identified the letter shapes correctly from these renders in cases where indirect algorithmic heuristics (width ratio, an oracle count deficit) were actively misleading, and said plainly: "In the past, when I looked at different such pictures, I was able to come up with a solution that you didn't think of on your own."
+  - Candidate skill: when stuck on a visual/shape-classification ambiguity in any project, generate a handful of different transformations/renderings of the ambiguous region rather than resolving it purely from algorithmic proxies or a single rendering — and say plainly when an identification is a heuristic guess versus something actually confirmed.
+  - This skill should be loaded used whenever an agent has to analyze images
+  - Second instance, no special domain expertise involved: in another project, a plan document attributed a mis-orientation bug to a photographed surface being "ruled." Four algorithmic proxies (variance, zero-fraction, gap width, run-pitch regularity) all failed to separate the hypothesis from reality. Rendering the actual ink mask as an image, then overlaying the candidate line-bands on it, immediately showed the true cause (the writing's own word-column alignment, not the surface) — a distinction none of the proxies captured. This was ordinary software debugging, not a specialist visual skill
