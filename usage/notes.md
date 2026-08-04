@@ -22,6 +22,7 @@ ends. Readings toward goal 1 are in `usage/events.jsonl` (`usage-report` and `re
 | Where's the `CARRY_AT` knee (below which clearing isn't worth the interruption)? | 4 real TTL crossings, 71,903–231,467 tokens carried — all far above the 50,000 default | a crossing that carries less context, to bracket the knee from below |
 | Is `CHECKPOINT_AT` right? | 4 correlated `cleared` outcomes at the old 50,000 default (nudge_age_min 0.9–4.7 — user cleared within minutes every time), contexts 71,675–113,950 | lowered the default to 35,000 (2026-08-04, a guess — see `checkpoint_stop.py`'s docstring) to bracket the range below 50,000; watching for whether nudges there still get a quick `cleared`, or start going unanswered |
 | Is `MARGIN_CALLS=5` the right tool-gate headroom? | 1 forced trial: denied at `calls_remaining ≈ 1.0`, ahead of the prompt gate | an unforced, natural ceiling crossing |
+| Why does fitted `per_pct` overshoot true per_pct by 13–51% (see "Calibration" below)? | subagent-transcript gap (fixed) and other-client usage (ruled out by the user) each checked and closed; the shape that's left — tokens/pct rising through a window's middle then dropping near the end — looks like a curve, not noise | test whether a non-linear (or piecewise/most-recent-slope) model tracks the readings better than the whole-window least-squares line |
 
 ## Cost of not clearing (transcript scan, 2026-08-04)
 
@@ -144,6 +145,29 @@ and total above already reflects the fix. Effect on the overshoot: A's raw vs-tr
 its window at all. **This was a genuine bug worth fixing on its own, but it is not the intercept
 mystery** — it accounts for at most a few points of the 13–51% gap, and explains none of C's 31.3%
 or D's un-investigable-by-transcript intercept. Whatever is driving most of it is still open.
+
+### Two more candidates checked and ruled out
+
+- **Usage outside this Claude Code CLI (claude.ai web, mobile, Desktop, direct API key) against the
+  same account.** Would be invisible to any local transcript scan and would look exactly like a
+  persistent additive intercept — the most likely remaining explanation by elimination. Asked the
+  user directly (2026-08-04): CLI only, nothing else touches this account. Ruled out.
+- **The fast-path text scan in `scan_transcripts` silently dropping real lines.** It locates a
+  line's timestamp with `line.find('"timestamp":"')` rather than a full JSON parse, on the
+  assumption that's always the first such substring in the line — false if any nested field (tool
+  output, embedded content) happened to contain that literal text earlier. Checked directly: 12,713
+  usage-bearing lines across every transcript on the machine (both glob patterns), comparing the
+  text-scan extraction against the real parsed `timestamp` field. Zero mismatches. Ruled out.
+
+With the subagent gap fixed and both of these eliminated, what's left points more at the model than
+at a missing data source: the per-reading `tokens/pct` ratios *rise through the middle of a window
+and drop back down near the end* rather than scattering randomly (window A: 553,618 → 679,648 →
+739,844 → 792,002 → 845,982 → 901,671 → 719,610; C is similarly shaped) — a curve, not noise, which
+a straight-line fit with a free intercept will absorb into exactly the kind of offset seen here
+rather than flag as a bad fit. Untested: whether `pct` genuinely isn't linear in raw tokens over a
+window (in which case the fix is a different model, not better data), or this is the same
+regime-shift effect already noted in "Within-window convergence" below, arrived at from the other
+direction.
 
 ### Within-window convergence
 
