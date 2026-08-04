@@ -53,6 +53,14 @@ intact, while every ~140–146-min gap observed (five instances) came back with 
 a cache-write ≈ the whole prior conversation. Crossing it turns the next request's cache-write into
 a one-time cost ≈ everything carried forward — why cache-write arrives in bursts rather than steadily.
 
+**Rolling into a new 5-hour credit window does not itself expire the cache.** Checked directly: a
+session continuously active across the 2026-08-04T10:14:17-06:00 window boundary (last request 4
+min before it, next 4 min after — nowhere near the TTL) shows `cache_read` climbing straight through
+without a reset (356,306 → 356,797) and a normal small `cache_write` (1,396, in line with ordinary
+per-turn growth, not a whole-conversation rewrite). The window boundary is a construct this repo's
+own tooling invented for budget tracking; Anthropic's prompt cache runs on its own idle-gap TTL
+entirely independent of it.
+
 `CARRY_AT` in `hooks/usage_common.py` (default 50,000) is still a guess. Four genuine TTL crossings
 measured directly from transcripts so far, all well above it:
 
