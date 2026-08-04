@@ -109,6 +109,34 @@ consistently with it either.
 spend the transcript scan can't see into the slope instead, which is what made an earlier one-shot
 ratio disagree with a delta fit by 2x.
 
+## Total tokens spent per window (2026-08-04)
+
+Every *completed* window logged in `events.jsonl`, summed directly from transcripts (the same
+`scan_transcripts` used everywhere else) rather than read off `usage-report` pct — those readings
+don't reliably land right at the boundary, so a transcript sum is the more exact number:
+
+| window | start | tokens spent | requests | sessions touched |
+|---|---|---:|---:|---:|
+| A | 08-03 14:11 | 70,859,292 | 425 | 54 |
+| B | 08-03 19:12 | 61,929,136 | 544 | 46 |
+| C | 08-04 00:13 | 82,266,244 | 391 | 33 |
+| D | 08-04 05:14 | 65,889,854 | 408 | 15 |
+
+Mean 70.2M, range 61.9M–82.3M (±7.6M, ~11% — one standard deviation). That's a much tighter band
+than the `per_pct` swings above (~40% window to window), which fits the user's account that most of
+these windows ran to exhaustion rather than being paced — a token-denominated ceiling that stayed
+roughly put while the pct-to-token slope moved around underneath it. Window E (started 08-04 10:14)
+is still open and excluded from the average; it stood at 71.0M tokens over 12 sessions after 1h16m
+elapsed.
+
+Conditions: every transcript on the machine, across all 4 projects — this is an account-wide window,
+not a per-repo one. 100% `claude-sonnet-5` in every window, so model mix isn't hiding in this number.
+Covers back to the start of `events.jsonl`: its first line is window A's own `renewed` record, so
+there's no earlier window this log can reconstruct.
+
+Four points isn't enough to call this converged, but it's a second, independent way to estimate the
+account's real cap alongside the per_pct calibration above, and worth widening as more windows close.
+
 ## Token categories and the prompt cache
 
 Cache-read is 95–97% of every window's tokens; cache-write 2–4%; output under 1%; input ~0%. Every
