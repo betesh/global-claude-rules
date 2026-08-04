@@ -26,11 +26,14 @@ fire before any real work happens) while being low enough to bracket the
 missing range. What would confirm or replace this guess is the next batch of
 `checkpoint-nudged` events landing lower than the old range: if they're still
 followed by a quick `cleared`, the threshold can drop further; if a nudge
-starts going unanswered, that's the knee. Firing logs the context size
-alongside `checkpoint-nudged`; a later `cleared` event (usage_report.py,
-logged when a session's SessionStart fires with source `clear`) links back to
-whichever nudge preceded it, which is what judging a threshold by its actual
-outcome — not just how often it fires — needs.
+starts going unanswered, that's the knee. `checkpoint-nudged` does not log the
+context size itself — it's redundant, recoverable after the fact from the
+transcript at whatever threshold turns out to be worth asking about. What it
+logs instead is the one fact a transcript can't reconstruct: that the hook
+fired here at all. A later `cleared` event (usage_report.py, logged when a
+session's SessionStart fires with source `clear`) links back to whichever
+nudge preceded it by `claude_pid`, which is what judging a threshold by its
+actual outcome — not just how often it fires — needs.
 
 Never fails a turn: any error exits 0 with no output.
 """
@@ -82,7 +85,7 @@ def main():
     if already_nudged(events, session_id):
         return
 
-    event = {"kind": "checkpoint-nudged", "context": context}
+    event = {"kind": "checkpoint-nudged"}
     pid = uc.claude_pid()
     if pid:
         event["claude_pid"] = pid
