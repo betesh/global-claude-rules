@@ -19,8 +19,9 @@ Two things still need a script, because they edit `settings.json` rather than
 just placing a symlink:
 
 ```sh
-./install-usage-hook.sh      # the shared credit-window report + gate
-./hooks/install-plan-hook.sh # the /clear nudge after a plan file is written
+./install-usage-hook.sh            # the shared credit-window report + gate
+./hooks/install-plan-hook.sh       # the /clear nudge after a plan file is written
+./hooks/install-checkpoint-hook.sh # the checkpoint nudge for a large session that never idles
 ```
 
 Each takes `--uninstall` and `--help`, backs up `settings.json` to
@@ -54,9 +55,11 @@ up `~/.claude/rules` the same way a main session does hasn't been confirmed here
 | `hooks/usage-gate.sh` + `usage_gate.py` | No | UserPromptSubmit: drops a prompt once the window is spent |
 | `hooks/usage_common.py` | No | Log/transcript logic shared by the report and gate scripts above |
 | `hooks/plan-written.py` | Only when it fires | Nudges toward `/clear` after a plan file is written whole |
-| `hooks/write-settings-hook.py` | No | Edits settings.json for both hook installers |
+| `hooks/checkpoint-stop.sh` + `checkpoint_stop.py` | Only when it fires | Stop: nudges a checkpoint once context is large and the session never went idle |
+| `hooks/write-settings-hook.py` | No | Edits settings.json for all three hook installers |
 | `install-usage-hook.sh` | No | Registers the usage-window hook |
 | `hooks/install-plan-hook.sh` | No | Registers the plan-written hook |
+| `hooks/install-checkpoint-hook.sh` | No | Registers the checkpoint-stop hook |
 | `usage/notes.md` | No | Committed conclusions about the credit window |
 | `usage/events.jsonl` | No | Raw usage observations, appended by agents — gitignored |
 | `README.md` | No | This file |
@@ -87,6 +90,24 @@ It is a hook rather than a rule because a rule is re-read on every request of
 every session (~0.4 points of a window per 1,000 tokens) while this costs nothing
 until it applies. `Edit` is deliberately not matched: trimming finished items
 from a plan is routine, replacing the file is not.
+
+## The checkpoint-stop hook
+
+`hooks/install-checkpoint-hook.sh` registers a `Stop` hook. `usage-gate.sh`'s
+own carried-context nudge only fires once a session goes idle past the
+prompt-cache TTL — a session that stays continuously active never crosses that
+gate no matter how large its context gets. This hook is the complementary
+trigger: at the end of every turn, it checks context size alone, and once a
+session crosses `CLAUDE_CHECKPOINT_CONTEXT_TOKENS` (default: the same guess as
+`CARRY_AT` in `usage_common.py`) it blocks the turn from ending with a nudge to
+check `git status`, save anything durable, and tell the user this is a good
+moment to `/clear` or `/compact`.
+
+It fires at most once per session — it logs a `checkpoint-nudged` event and
+checks for one before firing again, since blocking a `Stop` forces another turn
+whose own request only adds to the context that triggered it, and nothing else
+would stop it asking again. It also skips a session that already wrote a plan
+file, since `plan-written.py` already delivered that nudge once.
 
 ## Adding a rule
 
@@ -137,9 +158,9 @@ after old lines are rejected on the raw text rather than parsed.
 
 - **Whether subagents inherit `~/.claude/rules` the same way a main session
   does is unconfirmed here** — see [Symlinks](#symlinks).
-- **Project settings can't override the usage/plan hooks.** Those two are
-  installed in user settings and fire everywhere. A project that needs
-  different behavior should say so in its own `CLAUDE.md`.
+- **Project settings can't override the usage/plan/checkpoint hooks.** All
+  three are installed in user settings and fire everywhere. A project that
+  needs different behavior should say so in its own `CLAUDE.md`.
 
 ## Skills
 

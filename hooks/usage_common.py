@@ -1,8 +1,10 @@
 """Shared machinery for the usage-window hooks.
 
-Two entry points import this: usage_report.py (SessionStart — reports the
-window and logs its boundary) and usage_gate.py (UserPromptSubmit — decides
-whether a prompt is worth sending). Both read the same two sources:
+Three entry points import this: usage_report.py (SessionStart — reports the
+window and logs its boundary), usage_gate.py (UserPromptSubmit — decides
+whether a prompt is worth sending), and checkpoint_stop.py (Stop — nudges a
+checkpoint once context grows large without the session ever going idle). All
+read the same two sources:
 
   usage/events.jsonl   what agents have observed — window starts and the
                        percentages the user reported
