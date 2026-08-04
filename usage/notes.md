@@ -61,17 +61,20 @@ measured so far:
 
 | window | readings | per_pct | intercept | max residual | cache-write share | true per_pct | vs true |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| A (08-03 14:11) | 7 | 821,796 | 4.0 | 9.0pp | 1.9% | 708,593 | +16.0% |
-| B (08-03 19:12) | 3 | 941,707 | 14.8 | 0.9pp | 2.4% | 619,291 | +52.1% |
+| A (08-03 14:11) | 7 | 821,796 | 4.0 | 9.0pp | 1.9% | 724,404 | +13.4% |
+| B (08-03 19:12) | 3 | 941,707 | 14.8 | 0.9pp | 2.4% | 624,564 | +50.8% |
 | C (08-04 00:13) | 9 | 1,080,381 | 21.4 | 7.7pp | 2.2% | 822,662 | +31.3% |
 | D (08-04 05:14) | 9 | 1,140,912 | 19.7 | 6.6pp | 4.0% | n/a | — |
+
+(`true per_pct` here already includes the subagent-transcript fix below — see that section for what
+changed and by how much.)
 
 `true per_pct` only exists for windows the user confirmed running to exhaustion (A, B, C — see the
 `exhausted?` column below): its final transcript total *is* the 100% point, so `true per_pct =
 final total / 100` needs no fit at all. D has no such ground truth — it never reached 100%, so
 there's nothing to divide by.
 
-**The fitted `per_pct` overshoots true per_pct in every exhausted window, by a lot (+16–52%).**
+**The fitted `per_pct` overshoots true per_pct in every exhausted window, by a lot (+13–51%).**
 This isn't the residual the fit already reports against its own readings (the `max residual`
 column) — it's checked against the one number in each window that isn't a fit at all. Per-reading,
 the gap widens and narrows unevenly rather than shrinking as the window goes on: window A's readings
@@ -95,8 +98,8 @@ list-price ratios, not a measurement) instead of raw tokens:
 
 | window | raw max residual | weighted max residual | raw per-reading CV | weighted CV | raw vs true | weighted vs true |
 |---|---:|---:|---:|---:|---:|---:|
-| A | 9.0pp | 6.3pp | 14.2% | 8.5% | +16.0% | +7.5% |
-| B | 0.9pp | 0.7pp | 26.4% | 14.1% | +52.1% | +30.0% |
+| A | 9.0pp | 6.3pp | 14.2% | 8.5% | +13.4% | +4.6% |
+| B | 0.9pp | 0.7pp | 26.4% | 14.1% | +50.8% | +27.9% |
 | C | 7.7pp | 5.6pp | 14.6% | 8.5% | +31.3% | +19.1% |
 | D | 6.6pp | 4.5pp | 33.3% | 17.4% | n/a | n/a |
 
@@ -113,12 +116,34 @@ list-price ratio instead of counting them flat:
 - **Brings it closer to true per_pct.** In all three exhausted windows the overshoot against the
   ground-truth `final total / 100` roughly halves too (B: +52.1% → +30.0%; A and C similarly).
 
-It doesn't close the gap, though — weighted `per_pct` still overshoots true per_pct by 7.5–30%, worst
+It doesn't close the gap, though — weighted `per_pct` still overshoots true per_pct by 4.6–28%, worst
 in B in both versions. So token-type mix explains a real share of the earlier overshoot, but not all
 of it; something else (the `intercept` term is still the leading suspect) accounts for the rest. This
 is one more point toward the cost-denominated-cap hypothesis in "Total tokens spent per window," using
 the same unverified weights — it doesn't confirm the exact ratios, only that weighting in this
 direction moves every window the same way.
+
+### A found (partial) cause: subagent transcripts were invisible to every total above
+
+`scan_transcripts()`'s glob only read `projects/*/*.jsonl` — a session's own transcript. A subagent
+launched by the `Agent` tool writes its own, one level deeper, at
+`projects/<project>/<session>/subagents/agent-*.jsonl`, matched by neither that glob nor anything
+else in this file. Confirmed directly on this machine: 5 such files exist, spending real tokens
+against the same account, completely outside every total computed above until now.
+
+| window | subagent tokens missed | landed in-window? |
+|---|---:|---|
+| A | 1,581,121 | yes |
+| B | 527,265 | yes |
+| C | 0 | no |
+| D | 0 | no |
+
+Fixed in `hooks/usage_common.py`: `scan_transcripts` now globs both patterns. Every `true per_pct`
+and total above already reflects the fix. Effect on the overshoot: A's raw vs-true dropped 16.0% →
+13.4%, B's 52.1% → 50.8% — real but small, and C's is untouched because zero subagent tokens fell in
+its window at all. **This was a genuine bug worth fixing on its own, but it is not the intercept
+mystery** — it accounts for at most a few points of the 13–51% gap, and explains none of C's 31.3%
+or D's un-investigable-by-transcript intercept. Whatever is driving most of it is still open.
 
 ### Within-window convergence
 

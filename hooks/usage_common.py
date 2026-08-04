@@ -262,8 +262,15 @@ def scan_transcripts(since):
     # ISO-8601 sorts lexicographically — rather than by parsing each one.
     # Transcript timestamps are always UTC, regardless of what `since` is in.
     since_prefix = since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-    pattern = os.path.join(CONFIG_DIR, "projects", "*", "*.jsonl")
-    for path in glob.glob(pattern):
+    # A subagent (Agent tool) writes its own transcript one level deeper than a
+    # session's own, at <session>/subagents/agent-*.jsonl — real spend against
+    # the same account, invisible to every total here until both patterns are
+    # scanned (usage/notes.md: confirmed by direct filesystem check, 2026-08-04).
+    patterns = [
+        os.path.join(CONFIG_DIR, "projects", "*", "*.jsonl"),
+        os.path.join(CONFIG_DIR, "projects", "*", "*", "subagents", "*.jsonl"),
+    ]
+    for path in (p for pattern in patterns for p in glob.glob(pattern)):
         try:
             if datetime.fromtimestamp(os.path.getmtime(path), timezone.utc) < since:
                 continue  # every line in it predates the window
