@@ -87,6 +87,39 @@ too-high `per_pct` to keep fitting the same readings.
 own readings came in — a 52% swing in `per_pct` from within one window, not between windows. That
 motivated the convergence check below.)
 
+### Does cost-weighting fix it?
+
+Refit `calibrate()` on the same readings, but using the cost-weighted token totals from "Total
+tokens spent per window" (cache-write ×1.25, cache-read ×0.1, output ×5 — the same guessed
+list-price ratios, not a measurement) instead of raw tokens:
+
+| window | raw max residual | weighted max residual | raw per-reading CV | weighted CV | raw vs true | weighted vs true |
+|---|---:|---:|---:|---:|---:|---:|
+| A | 9.0pp | 6.3pp | 14.2% | 8.5% | +16.0% | +7.5% |
+| B | 0.9pp | 0.7pp | 26.4% | 14.1% | +52.1% | +30.0% |
+| C | 7.7pp | 5.6pp | 14.6% | 8.5% | +31.3% | +19.1% |
+| D | 6.6pp | 4.5pp | 33.3% | 17.4% | n/a | n/a |
+
+(CV = coefficient of variation, `stdev/mean`, of each window's per-reading `tokens/pct` ratios — how
+scattered a single window's own readings are around their own average, independent of any fit.)
+
+**Yes to both questions, and consistently across all four windows.** Weighting tokens by their
+list-price ratio instead of counting them flat:
+
+- **Makes it more linear.** The fit's own max residual drops in every window (largest: C's 7.7pp →
+  5.6pp), and the per-reading CV — how much a window's own readings disagree about tokens/pct
+  among themselves, with no fit involved — roughly halves in every window (D: 33.3% → 17.4%, still
+  the noisiest window but much less so).
+- **Brings it closer to true per_pct.** In all three exhausted windows the overshoot against the
+  ground-truth `final total / 100` roughly halves too (B: +52.1% → +30.0%; A and C similarly).
+
+It doesn't close the gap, though — weighted `per_pct` still overshoots true per_pct by 7.5–30%, worst
+in B in both versions. So token-type mix explains a real share of the earlier overshoot, but not all
+of it; something else (the `intercept` term is still the leading suspect) accounts for the rest. This
+is one more point toward the cost-denominated-cap hypothesis in "Total tokens spent per window," using
+the same unverified weights — it doesn't confirm the exact ratios, only that weighting in this
+direction moves every window the same way.
+
 ### Within-window convergence
 
 Fit on just the first *k* readings of a window and check the error against the readings held out
