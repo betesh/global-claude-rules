@@ -133,8 +133,23 @@ noise from cache-sharing luck.
 
 Of that 10,071, `rules/` itself is already known to be ~3,000 tokens (see "Shrinking `rules/`" in
 the plan's Out of scope) — leaving ~7,000 unattributed between skills/agent discovery and hooks'
-own SessionStart output. Splitting that further needs hooks isolated on their own, which is still
-open (see the plan).
+own SessionStart output.
+
+## Hooks alone cost ~541 tokens — the ~7,000 residual above is mostly skills/agent discovery
+
+Measured 2026-08-04, scripted, this repo's dir, right after the credit window renewed (0% used, so
+no concurrent-session risk from removing the gate hook): backed up `~/.claude/settings.json`,
+removed its `hooks` key, ran `claude -p "Reply with exactly: ok" --output-format json` twice, then
+restored the backup immediately (diff-verified clean afterward). Floor came back 28,668 / 28,668 —
+identical across both runs — against the 29,205–29,213 baseline with hooks in place. **Hooks cost
+≈541 tokens**, almost certainly all from `SessionStart`'s own printed report: the other three hooks
+(the prompt/tool gates, the `Stop` checkpoint) only produce output when they trigger, and a single
+first-turn request never reaches any of them.
+
+That finishes decomposing the ~10,071-token customization stack: rules/ ~3,000 (already known) +
+hooks ~541 (this measurement) leaves ~6,459 unaccounted for — **skills and agent discovery, not
+rules or hooks, is most of the floor this repo's setup adds.** None of the three individually
+crosses a threshold worth trimming on its own.
 
 <details><summary>superseded first pass, kept rather than silently edited</summary>
 

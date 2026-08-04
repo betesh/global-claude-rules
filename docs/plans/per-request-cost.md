@@ -6,26 +6,6 @@ and the payloads that edits leave behind. Measured over one window (140 requests
 the floor was 22.1K per request (35% of what the attribution can see), requests producing under 400
 output tokens were 44% of all requests and 43% of context spend, and `Edit` inputs carried 746K.
 
-## Phase 2 — find what the floor is actually made of, and whether any of it is ours
-
-The floor was 21,905 / 22,109 / 22,166 / 22,188 tokens across four sessions — stable enough that a
-difference of a thousand tokens between two configurations is a real signal. `permissions.deny` on
-deferred tools, the session-start rule load, and cache-hit/miss visibility are answered — see
-`usage/notes.md`; none of them move the floor enough to act on, and cache-hit/miss is already
-exposed per request.
-
-- [ ] Isolate hooks' own contribution to the floor. Three interactive readings (full repo, empty
-      dir, `--safe-mode`, see `usage/notes.md`) pin the always-loaded core at 19,033 tokens and this
-      repo's whole rules+hooks+skills+agents customization stack at 10,071 — of which `rules/` is
-      already known to be ~3,000, leaving ~7,000 unattributed between skills/agent discovery and
-      hooks' own SessionStart output.
-      - `--settings '{"hooks":{}}'` does not override `~/.claude/settings.json`'s `hooks` key (the
-        SessionStart hook still fired, confirmed via a `-d api` debug log), and
-        `--setting-sources project,local` came back polluted by a partial cross-session cache hit.
-        The remaining option is editing `~/.claude/settings.json` directly for one interactive
-        reading, which is only safe to do when no concurrent session is close to the usage ceiling
-        (it also removes the usage gate for the duration) — check before doing it.
-
 ## Phase 3 — establish how much of the request count is avoidable
 
 62 of 140 requests produced under 400 output tokens and cost 4.6M between them. That is what those
