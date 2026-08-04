@@ -17,6 +17,14 @@ guarantees one exists — a window can turn over with nobody around to record
 it. Rather than reconstructing a lapsed boundary by rolling forward through
 every transcript, this settles for the cheap answer: past one full window
 since the newest such evidence, usage is treated as 0% and the check passes.
+
+Once a window start is in hand, transcripts give the tokens spent since it —
+scan_transcripts() reads every request's usage, exactly as the live hooks do.
+Converting that to a percentage is the other half, and it does not wait for
+this window's own usage-report readings to calibrate a fresh slope: it applies
+the relationship already measured across past windows (usage/notes.md),
+because requiring live readings is what would make this "unknown" in the
+common case where nobody has reported one yet.
 """
 
 import os
@@ -27,6 +35,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 os.environ.setdefault("REPO_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import usage_common as uc  # noqa: E402
+
+# pct = PCT_INTERCEPT + tokens / TOKENS_PER_PCT. Best fit so far (usage/notes.md,
+# "% used maps linearly to tokens, with a nonzero intercept"): one window, 6
+# readings spanning 15.5M-46.9M tokens, every reading within 2.3pp of the fit.
+TOKENS_PER_PCT = float(os.environ.get("CLAUDE_TOKENS_PER_PCT", "1267529"))
+PCT_INTERCEPT = float(os.environ.get("CLAUDE_PCT_INTERCEPT", "17.3"))
 
 
 def find_recent_renewal(events):
@@ -55,26 +69,13 @@ def main():
         return 0
 
     requests, _sessions = uc.scan_transcripts(window_start)
-    reports = [
-        e for e in events
-        if e.get("kind") == "usage-report" and e["_t"] >= window_start
-        and isinstance(e.get("pct"), (int, float))
-    ]
-    per_pct, intercept, backing = uc.calibrate(reports, requests)
-
-    # Below 2 readings calibrate() can only return a single-point ratio through
-    # the origin, which usage_gate.py's own gate_reason() treats as too
-    # unreliable to act on — same bar here, for the same reason.
-    if not per_pct or backing < 2:
-        print("current unknown — fewer than 2 usage-report readings logged since the last renewal")
-        return 0
-
     spent = uc.tokens_through(requests)
-    estimate = intercept + spent / per_pct
+    estimate = PCT_INTERCEPT + spent / TOKENS_PER_PCT
     exceeded = estimate >= uc.GATE_AT_PCT
     print(
-        f"current ~{min(estimate, 100):.0f}% used ({spent:,} tokens at {per_pct:,.0f}/%, "
-        f"{backing} reading{'s' if backing != 1 else ''}) — gate at {uc.GATE_AT_PCT:.0f}%"
+        f"current ~{min(estimate, 100):.0f}% used ({spent:,} tokens since the last renewal at "
+        f"{uc.stamp(window_start)}, {TOKENS_PER_PCT:,.0f} tokens/% + {PCT_INTERCEPT:.1f} intercept) "
+        f"— gate at {uc.GATE_AT_PCT:.0f}%"
     )
     return 1 if exceeded else 0
 
