@@ -3,7 +3,9 @@
 Add to this as real measurements accumulate — every figure here must come from a measurement, not
 a guess (see `rules/measure-before-recording.md`), stating what it was measured under. Skip
 anything an implemented hook/rule/script already documents in its own comments; this file is for
-knowledge that doesn't live anywhere else.
+knowledge that doesn't live anywhere else. State current knowledge, not the process of arriving at
+it: a superseded number, a fixed bug, or a corrected report belongs in git history and commit
+messages, not here.
 
 ## Goals
 
@@ -18,7 +20,8 @@ ends. Readings toward goal 1 are in `usage/events.jsonl` (`usage-report` and `re
 
 | open question | current evidence | what's needed |
 |---|---|---|
-| Given that `per_pct` vary ~40% window to window, how many data point for the current window is enough to model per_pct for the remainder of the window? | see "Within-window convergence" below: no small, fixed count is reliable | readings taken only while every agent on the machine is idle, to see whether that removes the regime-shift noise |
+| Given that `per_pct` vary ~73% window to window, how many data points for the current window is enough to model per_pct for the remainder of the window? | see "How reliably the fit predicts held-out readings" below: no small, fixed count is reliable | readings taken only while every agent on the machine is idle, to see whether that removes the regime-shift noise |
+| Why does even the cost-weighted fit still overshoot true per_pct (by 4.6–28%)? | curve-shaped per-reading ratios (rising through a window's middle, falling near the end) fit poorly by any straight line; missing subagent transcripts, non-CLI usage, and a timestamp-parsing bug are ruled out as causes | whether pct is genuinely non-linear in tokens over a window, or a piecewise/regime-shift model would close the rest of the gap |
 | Where's the `CARRY_AT` knee (below which clearing isn't worth the interruption)? | 4 real TTL crossings, 71,903–231,467 tokens carried — all far above the 50,000 default | a crossing that carries less context, to bracket the knee from below |
 | Is `CHECKPOINT_AT` right? | 4 correlated `cleared` outcomes at the old 50,000 default (nudge_age_min 0.9–4.7 — user cleared within minutes every time), contexts 71,675–113,950 | lowered the default to 35,000 (2026-08-04, a guess — see `checkpoint_stop.py`'s docstring) to bracket the range below 50,000; watching for whether nudges there still get a quick `cleared`, or start going unanswered |
 | Is `MARGIN_CALLS=5` the right tool-gate headroom? | 1 forced trial: denied at `calls_remaining ≈ 1.0`, ahead of the prompt gate | an unforced, natural ceiling crossing |
@@ -57,10 +60,16 @@ measurement yet, only the acceptance/timing data already in the table above.
 
 ## Calibration: tokens-per-percent by window
 
-`pct = intercept + tokens/per_pct`, fit by `calibrate()` in `hooks/usage_common.py`. Six windows
-measured so far:
+`pct = intercept + weighted_tokens/per_pct`, fit by `calibrate()` in `hooks/usage_common.py` on
+tokens weighted by `TOKEN_WEIGHTS` (cache-write ×1.25, cache-read ×0.1, output ×5 — a guessed
+list-price ratio, not a measurement). Token totals include every request in the window: both a
+session's own transcript and any subagent transcripts it launched (`scan_transcripts` globs
+`projects/*/*.jsonl` and `projects/*/*/subagents/agent-*.jsonl`).
 
-| window | readings | per_pct | intercept | max residual | cache-write share | true per_pct | vs true |
+The table below shows the **raw** (unweighted) whole-window fit for comparison against the
+cost-weighted one in the next section:
+
+| window | readings | raw per_pct | intercept | max residual | cache-write share | true per_pct | vs true |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | A (08-03 14:11) | 7 | 821,796 | 4.0 | 9.0pp | 1.9% | 724,404 | +13.4% |
 | B (08-03 19:12) | 3 | 941,707 | 14.8 | 0.9pp | 2.4% | 624,564 | +50.8% |
@@ -69,36 +78,44 @@ measured so far:
 | E (08-04 10:14) | 7 | 1,148,961 | 4.8 | 3.8pp | 1.1% | 1,041,380 | +10.3% |
 | F (08-04 15:16) | 3 | 1,421,011 | 5.5 | 1.5pp | 2.7% | n/a | — |
 
-(`true per_pct` here already includes the subagent-transcript fix below — see that section for what
-changed and by how much.)
-
 `true per_pct` only exists for windows the user confirmed running to exhaustion (A, B, C, E — see
-the `exhausted?` column below): its final transcript total *is* the 100% point, so `true per_pct =
-final total / 100` needs no fit at all. D and F have no such ground truth — neither reached 100%,
-so there's nothing to divide by. (E was first reported as not exhausted, then corrected — see "Total
-tokens spent per window.")
+the `exhausted?` column in "Total tokens spent per window"): its final transcript total *is* the
+100% point, so `true per_pct = final total / 100` needs no fit at all. D and F have no such ground
+truth — neither reached 100%, so there's nothing to divide by.
 
-**The fitted `per_pct` overshoots true per_pct in every exhausted window, by a lot (+10–51%).**
-This isn't the residual the fit already reports against its own readings (the `max residual`
-column) — it's checked against the one number in each window that isn't a fit at all. Per-reading,
-the gap widens and narrows unevenly rather than shrinking as the window goes on: window A's readings
-run from +6.1pp too high early on to −14.2pp too low mid-window before landing at −1.5pp at the very
-last reading; C swings from +8.9pp to +17.3pp and back down to −2.2pp. A systematic overshoot in
-`per_pct` of this size means `estimate ~X% used` (what `usage_report.py` prints at every
-`SessionStart`) understates real usage in exactly the windows where understating it matters most —
-the ones about to run out. Not yet root-caused; the `intercept` term (assumed pre-window spend the
-scan can't see) is the leading suspect, since a too-high intercept is exactly what would need a
-too-high `per_pct` to keep fitting the same readings.
+**The raw fit overshoots true per_pct in every exhausted window, by a lot (+10–51%).** This isn't
+the residual the fit already reports against its own readings (the `max residual` column) — it's
+checked against the one number in each window that isn't a fit at all. Per-reading, the gap widens
+and narrows unevenly rather than shrinking as the window goes on: window A's readings run from
++6.1pp too high early on to −14.2pp too low mid-window before landing at −1.5pp at the very last
+reading; C swings from +8.9pp to +17.3pp and back down to −2.2pp. A systematic overshoot of this
+size means `estimate ~X% used` (what `usage_report.py` prints at every `SessionStart`) understates
+real usage in exactly the windows where understating it matters most — the ones about to run out.
 
-(D's row moved from 6 readings/752,323/12.5 to 9 readings/1,140,912/19.7 as more of that window's
-own readings came in — a 52% swing in `per_pct` from within one window, not between windows. That
-motivated the convergence check below.)
+Ruled out as causes:
+
+- **Usage against this account outside the CLI** (claude.ai web, mobile, Desktop, direct API key)
+  would be invisible to any local transcript scan and would look like a persistent additive
+  intercept. Asked the user directly: CLI only, nothing else touches this account. Recheck by
+  asking again.
+- **A timestamp-extraction bug in `scan_transcripts`'s fast path.** It locates a line's timestamp
+  with `line.find('"timestamp":"')` rather than a full JSON parse, on the assumption that's always
+  the first such substring in the line — false if a nested field (tool output, embedded content)
+  contains that literal text earlier. Checked by comparing the fast-path extraction against a full
+  parse's `timestamp` field over every usage-bearing line on the machine: 12,713 lines, 0
+  mismatches. Recheck the same way if `scan_transcripts` or transcript content shape changes.
+
+Neither explains the overshoot. The leading remaining explanation: the per-reading `tokens/pct`
+ratio *rises through the middle of a window and drops back down near the end* rather than scattering
+randomly (window A: 553,618 → 679,648 → 739,844 → 792,002 → 845,982 → 901,671 → 719,610; C is
+similarly shaped) — a curve, not noise, which a straight-line fit with a free intercept will absorb
+into exactly the kind of offset seen here rather than flag as a bad fit. Untested: whether `pct` is
+genuinely non-linear in raw tokens over a window, or this is the same regime-shift effect noted
+below, arrived at from the other direction.
 
 ### Does cost-weighting fix it?
 
-Refit `calibrate()` on the same readings, but using the cost-weighted token totals from "Total
-tokens spent per window" (cache-write ×1.25, cache-read ×0.1, output ×5 — the same guessed
-list-price ratios, not a measurement) instead of raw tokens:
+Refitting on cost-weighted token totals instead of raw ones, same readings:
 
 | window | raw max residual | weighted max residual | raw per-reading CV | weighted CV | raw vs true | weighted vs true |
 |---|---:|---:|---:|---:|---:|---:|
@@ -112,121 +129,38 @@ list-price ratios, not a measurement) instead of raw tokens:
 (CV = coefficient of variation, `stdev/mean`, of each window's per-reading `tokens/pct` ratios — how
 scattered a single window's own readings are around their own average, independent of any fit. F's
 CV is the highest measured by far — only 3 readings, and the first jumps from 6% to 35%, so there's
-little in that window to average the noise over.)
+little in that window to average the noise over, which also makes its very low max residual less
+meaningful than the other windows' — three points fit a line almost by construction.)
 
-**Yes to both questions, and consistently across all six windows.** Weighting tokens by their
-list-price ratio instead of counting them flat:
+Weighting tokens by their list-price ratio instead of counting them flat, consistently across all
+six windows:
 
 - **Makes it more linear.** The fit's own max residual drops in every window (largest: C's 7.7pp →
-  5.6pp), and the per-reading CV — how much a window's own readings disagree about tokens/pct
-  among themselves, with no fit involved — drops in every window too, though by less where it was
-  already tight to start with (E: already the calmest window at 3.5%, still improves to 2.7%; D:
-  the noisiest of the exhausted/uncertain group, roughly halves from 33.3% → 17.4%).
+  5.6pp), and the per-reading CV drops in every window too, though by less where it was already
+  tight to start with (E: 3.5% → 2.7%; D, the noisiest of the group with a real fit: roughly halves
+  from 33.3% → 17.4%).
 - **Brings it closer to true per_pct.** In all four exhausted windows the overshoot against the
   ground-truth `final total / 100` shrinks (B: +52.1% → +30.0%; A and C similarly; E: +10.3% →
   +8.2%, a smaller absolute move since it started closer to true than any other window).
 
 It doesn't close the gap, though — weighted `per_pct` still overshoots true per_pct by 4.6–28%, worst
-in B in both versions. So token-type mix explains a real share of the earlier overshoot, but not all
-of it; something else (the `intercept` term is still the leading suspect) accounts for the rest. This
-is one more point toward the cost-denominated-cap hypothesis in "Total tokens spent per window," using
-the same unverified weights — it doesn't confirm the exact ratios, only that weighting in this
-direction moves every window the same way.
+in B in both versions. Token-type mix explains a real share of the overshoot, but not all of it —
+see the curve-shape note above for the leading remaining explanation.
 
-### A found (partial) cause: subagent transcripts were invisible to every total above
+### How reliably the fit predicts held-out readings
 
-`scan_transcripts()`'s glob only read `projects/*/*.jsonl` — a session's own transcript. A subagent
-launched by the `Agent` tool writes its own, one level deeper, at
-`projects/<project>/<session>/subagents/agent-*.jsonl`, matched by neither that glob nor anything
-else in this file. Confirmed directly on this machine: 5 such files exist, spending real tokens
-against the same account, completely outside every total computed above until now.
+Backtest: fit on just the first *k* readings of a window, measure absolute error against the
+readings held out after it, for every *k* from 2 to *n* − 1. **The held-out error does not shrink
+monotonically with more points** — window A's error only gets worse as more readings are added
+(13.4pp at k=2 growing to 23.8pp at k=6), and D's very first fit (k=2) is off by 144.0pp before
+settling down. Windows A and D each contain a burst partway through (large jumps in reported pct
+between adjacent readings — A: 52→98, D: 29→47→68) where the rate visibly changes; a line fit on the
+calm part of a window is a bad predictor of the bursty part. The thing that breaks the fit looks like
+an un-modeled regime shift — local rate tracks token mix, not calendar time — not sample size.
 
-| window | subagent tokens missed | landed in-window? |
-|---|---:|---|
-| A | 1,581,121 | yes |
-| B | 527,265 | yes |
-| C | 0 | no |
-| D | 0 | no |
-
-Fixed in `hooks/usage_common.py`: `scan_transcripts` now globs both patterns. Every `true per_pct`
-and total above already reflects the fix. Effect on the overshoot: A's raw vs-true dropped 16.0% →
-13.4%, B's 52.1% → 50.8% — real but small, and C's is untouched because zero subagent tokens fell in
-its window at all. **This was a genuine bug worth fixing on its own, but it is not the intercept
-mystery** — it accounts for at most a few points of the 13–51% gap, and explains none of C's 31.3%
-or D's un-investigable-by-transcript intercept. Whatever is driving most of it is still open.
-
-### Two more candidates checked and ruled out
-
-- **Usage outside this Claude Code CLI (claude.ai web, mobile, Desktop, direct API key) against the
-  same account.** Would be invisible to any local transcript scan and would look exactly like a
-  persistent additive intercept — the most likely remaining explanation by elimination. Asked the
-  user directly (2026-08-04): CLI only, nothing else touches this account. Ruled out.
-- **The fast-path text scan in `scan_transcripts` silently dropping real lines.** It locates a
-  line's timestamp with `line.find('"timestamp":"')` rather than a full JSON parse, on the
-  assumption that's always the first such substring in the line — false if any nested field (tool
-  output, embedded content) happened to contain that literal text earlier. Checked directly: 12,713
-  usage-bearing lines across every transcript on the machine (both glob patterns), comparing the
-  text-scan extraction against the real parsed `timestamp` field. Zero mismatches. Ruled out.
-
-With the subagent gap fixed and both of these eliminated, what's left points more at the model than
-at a missing data source: the per-reading `tokens/pct` ratios *rise through the middle of a window
-and drop back down near the end* rather than scattering randomly (window A: 553,618 → 679,648 →
-739,844 → 792,002 → 845,982 → 901,671 → 719,610; C is similarly shaped) — a curve, not noise, which
-a straight-line fit with a free intercept will absorb into exactly the kind of offset seen here
-rather than flag as a bad fit. Untested: whether `pct` genuinely isn't linear in raw tokens over a
-window (in which case the fix is a different model, not better data), or this is the same
-regime-shift effect already noted in "Within-window convergence" below, arrived at from the other
-direction.
-
-### Within-window convergence
-
-Fit on just the first *k* readings of a window and check the error against the readings held out
-after it (script: refit incrementally, compare predicted vs. reported pct). Result: **the held-out
-error does not shrink monotonically with more points** — more early-window readings sometimes made
-the forecast worse, not better:
-
-| window | fit on first 2 | fit on first 4 | fit on second-to-last |
-|---|---|---|---|
-| A (7 readings) | 15.0pp held-out err | 19.2pp | 25.1pp (6 of 7) — got worse throughout |
-| B (3 readings) | 5.3pp (only 1 point to hold out) | — | — |
-| C (9 readings) | 46.4pp | 15.5pp | 5.0pp (7 of 9) — converged, but only near the end |
-| D (9 readings) | 144.0pp | 30.0pp | 10.3pp (7 of 9) — still 5pp off even at 8 of 9 |
-
-Windows A and D each contain a burst partway through (large jumps in reported pct between adjacent
-readings — A: 52→98, D: 29→47→68) where the rate visibly changes; a line fit on the calm part of the
-window is a bad predictor of the bursty part. **No small, fixed point count reliably bounds the
-error** — 2 points was fine in B and off by 144pp in D; even 7–8 of 9 points (most of the window
-already spent) still carried 5–10pp of held-out error in C and D. The thing that breaks the fit
-looks like an un-modeled regime shift (matches the earlier finding that local rate tracks token
-mix, not calendar time), not sample size.
-
-Untested mitigation, to check against future windows: reporting pct only when every agent on the
-machine is idle (no concurrent mid-burst spend at the moment of the reading), to see whether that
-removes this noise rather than more points averaging over it.
-
-**`per_pct` swings ~40% across these four windows — not a fixed constant.** Within a window the fit
-is sometimes tight (B, D: under 2.5pp) and sometimes not (A, C: 7–9pp); the worst residuals in both
-A and C land near bursts of fresh, cache-miss-heavy sessions (many short-lived test sessions in C;
-a TTL-crossing cache-expiry in A), suggesting the *local* rate shifts with what kind of tokens are
-being spent, not just calendar time. Ruled out as the sole cause: model mix (all four windows are
-100% `claude-sonnet-5`) and cache-write share alone (1.9–4.1%, doesn't order the same way `per_pct`
-does — C has a lower cache-write share than B but a higher `per_pct`); session count doesn't order
-consistently with it either.
-
-**Never drop the intercept** when fitting: forcing the line through the origin pushes pre-window
-spend the transcript scan can't see into the slope instead, which is what made an earlier one-shot
-ratio disagree with a delta fit by 2x.
-
-### Local-slope vs cost-weighted: backtest across A–F, and the model adopted
-
-Extends the two checks above — this section's held-out method, and "Does cost-weighting fix it?"'s
-whole-window refit — to compare two candidates against the current raw whole-window fit: the
-cost-weighted fit already shown above, and a local-slope model that re-anchors on only the two most
-recent readings instead of fitting the whole window. Same backtest as above: fit on the first *k*
-readings of a window, measure the fit's absolute error against the readings held out after it, for
-every *k* from 2 to *n* − 1.
-
-Held-out error, mean / max absolute error in pp across every *k*:
+Compares three candidate fits: the raw whole-window least-squares fit above, the same fit on
+cost-weighted tokens, and a local-slope model that re-anchors on only the two most recent readings
+instead of fitting the whole window. Mean / max absolute error in pp, across every *k*:
 
 | window | current (raw LSQ) | cost-weighted LSQ | local-slope (raw) | local-slope (weighted) |
 |---|---:|---:|---:|---:|
@@ -240,13 +174,11 @@ Held-out error, mean / max absolute error in pp across every *k*:
 "Fit failure": window A's readings 5 and 6 report the same pct (52, 52) back to back, so the
 two-point local slope is undefined for the split that lands on them — the whole-window fit still
 produces an answer where the local-slope model has none. E fails the same way, at the same spot in
-its own sequence (readings 5 and 6 both report 79) — a second, independent occurrence of the same
-failure mode, not a one-off. (F has too few readings for this split to arise — its one k=2 backtest
-is the degenerate case, same as B, where the local-slope model and the whole-window fit are the same
-two points.)
+its own sequence (readings 5 and 6 both report 79) — two independent occurrences of the same failure
+mode. (F has too few readings for this split to arise — its one k=2 backtest is the degenerate case,
+same as B, where the local-slope model and the whole-window fit are the same two points.)
 
-Checked against each exhausted window's true per_pct (final transcript total / 100, same ground
-truth as the calibration table above — the weighted candidates are checked against the weighted
+Checked against each exhausted window's true per_pct (the weighted candidates against the weighted
 version of that same total):
 
 | window | current | cost-weighted LSQ | local-slope (raw) | local-slope (weighted) |
@@ -256,23 +188,32 @@ version of that same total):
 | C | +31.3% | +19.1% | −87.5% | −82.9% |
 | E | +10.3% | +8.2% | +65.2% | +49.6% |
 
-**Cost-weighted least squares wins consistently; local-slope does not.** The cost-weighted fit beats
-the current raw whole-window fit on both held-out error and true-value accuracy in every window
-tested — mean and max held-out error lower in all six (A–F), true-value overshoot smaller in all
-four exhausted windows (A, B, C, E) — matching what "Does cost-weighting fix it?" already found for
-the whole-window residual, now also holding up out-of-sample. Local-slope is not a consistent win
-over either baseline: it beats cost-weighted LSQ's held-out error in some windows (C, D) but loses in
-others (A, E) or ties (B, F), and its true-value accuracy is erratic in both direction and
-magnitude — undershoots by 24–88% in A and C, overshoots by 25–65% in B and E — worse than the
-current model in most of these, and it can fail to produce a fit at all when two consecutive readings
-tie (now observed independently in both A and E).
+**Cost-weighted least squares beats both alternatives on held-out error in every window (A–F) and on
+true-value accuracy in every exhausted window (A, B, C, E).** Local-slope is not a consistent
+alternative: it beats cost-weighted LSQ's held-out error in some windows (C, D) but loses in others
+(A, E) or ties (B, F), and its true-value accuracy is erratic in both direction and magnitude —
+undershoots by 24–88% in A and C, overshoots by 25–65% in B and E — worse than even the raw
+whole-window fit in most of these, and it can fail to produce a fit at all when two consecutive
+readings tie.
 
-Adopted: `calibrate()` in `hooks/usage_common.py` now fits on tokens weighted by `TOKEN_WEIGHTS`
-(cache-write ×1.25, cache-read ×0.1, output ×5 — the same guessed list-price ratios as above)
+`per_pct` (raw fit) ranges 821,796–1,421,011 across the six windows measured — not a fixed constant.
+Within a window the raw fit is sometimes tight (B, D: under 2.5pp) and sometimes not (A, C: 7–9pp);
+the worst residuals in both A and C land near bursts of fresh, cache-miss-heavy sessions (many
+short-lived test sessions in C; a TTL-crossing cache-expiry in A), suggesting the *local* rate shifts
+with what kind of tokens are being spent, not just calendar time. Ruled out as the sole cause: model
+mix (all six windows are 100% `claude-sonnet-5`) and cache-write share alone (1.1–4.0%, doesn't order
+the same way `per_pct` does — C has a lower cache-write share than B but a higher `per_pct`); session
+count doesn't order consistently with it either.
+
+**Never drop the intercept** when fitting: forcing the line through the origin pushes pre-window
+spend the transcript scan can't see into the slope instead, which is what made an earlier one-shot
+ratio disagree with a delta fit by 2x.
+
+**Adopted**: `calibrate()` in `hooks/usage_common.py` fits on tokens weighted by `TOKEN_WEIGHTS`
 instead of a flat count. `usage_report.py`'s estimate line, `usage_gate.py`'s gate math, and
-`usage_tool_gate.py`'s calls-remaining math (whose carried-context denominator is now weighted the
-same way, so it isn't divided by a differently-scaled number) all read the one fit through
-`window_state()`. Local-slope was tested and rejected — not adopted anywhere.
+`usage_tool_gate.py`'s calls-remaining math (whose carried-context denominator is weighted the same
+way, so it isn't divided by a differently-scaled number) all read the one fit through
+`window_state()`. Local-slope is not used anywhere.
 
 ## Total tokens spent per window (2026-08-04)
 
@@ -290,9 +231,7 @@ don't reliably land right at the boundary, so a transcript sum is the more exact
 | F | 08-04 15:16 | 71,583,169 | 393 | 6 | 4h51m in (95% of the window) | **no** |
 
 `exhausted?` is the user's own account of which windows they ran out of credit in, not something
-derived from the scan — it's the ground truth the rest of this section is checked against. E was
-first reported as not exhausted, then corrected: it *was* exhausted. Every figure below already
-reflects the correction.
+derived from the scan — it's the ground truth the rest of this section is checked against.
 
 **"Last token used" predicts it correctly across all six windows measured so far.** A, B, C, E all
 stopped spending well before their 5-hour mark (35–74%) and then show no further tokens until the
@@ -309,13 +248,11 @@ substitute for asking.
 **Raw token totals do not order the same way exhaustion does — the first sign the cap isn't a flat
 token count.** D spent *more* raw tokens (65.9M) than B did before B hit its cap (61.9M), yet D
 didn't exhaust. The four confirmed-exhausted windows (A, B, C, E) give mean 79.8M, range
-61.9M–104.1M — noticeably wider now that E (104.1M, exhausted) is included — and both non-exhausted
-windows (D: 65.9M, F: 71.6M) sit comfortably inside that range rather than outside it, which is the
-clearest sign yet that raw token count alone can't be what the cap is measured in.
+61.9M–104.1M, and both non-exhausted windows (D: 65.9M, F: 71.6M) sit comfortably inside that range
+rather than outside it — the clearest sign yet that raw token count alone can't be what the cap is
+measured in.
 
-A cost-weighted total, using the same guessed list-price ratios as above (cache-write ×1.25,
-cache-read ×0.1, output ×5 — not verified against whatever this cap actually charges), was proposed
-here as a fix once D was the only non-exhausted counterexample:
+A cost-weighted total (same guessed list-price ratios as above) narrows this:
 
 | window | weighted total | exhausted? |
 |---|---:|---|
@@ -327,14 +264,14 @@ here as a fix once D was the only non-exhausted counterexample:
 | F | 10.87M | **no** |
 
 **Weighting helps, but a single threshold still doesn't separate the two groups.** D (10.07M) sits
-below every exhausted window, which is what motivated the fix in the first place, and E — now
-correctly exhausted at 14.23M, the largest total measured — extends the exhausted range upward
-without breaking it. But F (10.87M) lands *between* B (10.68M, exhausted) and A (11.40M, exhausted)
-instead of below the whole range: one non-exhausted window (D) sits cleanly under every exhausted
-one, the other (F) overlaps them. So cost-weighting narrows the overlap the raw count left wide open,
-but these particular weights still don't give a clean cap threshold. Either the guessed list-price
-ratios need adjusting, or exhaustion isn't a pure cumulative-spend threshold at all — burst rate or
-request cadence could matter alongside total spend — and nothing measured so far distinguishes those.
+below every exhausted window. E, exhausted at 14.23M, is the largest total measured and extends the
+exhausted range upward without breaking it. But F (10.87M) lands *between* B (10.68M, exhausted) and
+A (11.40M, exhausted) instead of below the whole range: one non-exhausted window (D) sits cleanly
+under every exhausted one, the other (F) overlaps them. So cost-weighting narrows the overlap the raw
+count left wide open, but these particular weights still don't give a clean cap threshold. Either the
+guessed list-price ratios need adjusting, or exhaustion isn't a pure cumulative-spend threshold at
+all — burst rate or request cadence could matter alongside total spend — and nothing measured so far
+distinguishes those.
 
 Conditions: every transcript on the machine, across all 4 projects — this is an account-wide window,
 not a per-repo one. 100% `claude-sonnet-5` in every window, so model mix isn't hiding in this number.
