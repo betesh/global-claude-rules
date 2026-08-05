@@ -21,7 +21,7 @@ ends. Readings toward goal 1 are in `usage/events.jsonl` (`usage-report` and `re
 | open question | current evidence | what's needed |
 |---|---|---|
 | Given that `per_pct` vary ~73% window to window, how many data points for the current window is enough to model per_pct for the remainder of the window? | see "How reliably the fit predicts held-out readings" below: no small, fixed count is reliable | readings taken only while every agent on the machine is idle, to see whether that removes the regime-shift noise |
-| Why does even the cost-weighted fit still overshoot true per_pct (by 4.6–28%)? | curve-shaped per-reading ratios (rising through a window's middle, falling near the end) fit poorly by any straight line; missing subagent transcripts, non-CLI usage, and a timestamp-parsing bug are ruled out as causes | whether pct is genuinely non-linear in tokens over a window, or a piecewise/regime-shift model would close the rest of the gap |
+| Why does even the cost-weighted fit still overshoot true per_pct (by 4.6–28%)? | curve-shaped per-reading ratios (rising through a window's middle, falling near the end) fit poorly by any straight line; missing subagent transcripts, non-CLI usage, a timestamp-parsing bug, and a burst of concurrent cold-starts at window-open are ruled out as causes | whether pct is genuinely non-linear in tokens over a window, or a piecewise/regime-shift model would close the rest of the gap |
 | Where's the `CARRY_AT` knee (below which clearing isn't worth the interruption)? | 4 real TTL crossings, 71,903–231,467 tokens carried — all far above the 50,000 default | a crossing that carries less context, to bracket the knee from below |
 | Is `CHECKPOINT_AT` right? | 4 correlated `cleared` outcomes at the old 50,000 default (nudge_age_min 0.9–4.7 — user cleared within minutes every time), contexts 71,675–113,950 | lowered the default to 35,000 (2026-08-04, a guess — see `checkpoint_stop.py`'s docstring) to bracket the range below 50,000; watching for whether nudges there still get a quick `cleared`, or start going unanswered |
 | Is `MARGIN_CALLS=5` the right tool-gate headroom? | 1 forced trial: denied at `calls_remaining ≈ 1.0`, ahead of the prompt gate | an unforced, natural ceiling crossing |
@@ -104,8 +104,21 @@ Ruled out as causes:
   contains that literal text earlier. Checked by comparing the fast-path extraction against a full
   parse's `timestamp` field over every usage-bearing line on the machine: 12,713 lines, 0
   mismatches. Recheck the same way if `scan_transcripts` or transcript content shape changes.
+- **A burst of concurrent, cold-start sessions right when a window opens** — several agents
+  (plausibly ones blocked by the previous window's exhaustion) all firing large, cache-miss-heavy
+  requests within the same minute or two once credit renews, which would look like a fixed
+  head-start if it fell reliably at every window's open. Checked by measuring session count, raw
+  tokens, and the largest single cache-write in the first 10 minutes of windows A–F against each
+  window's fitted intercept: no relationship. Window A has the biggest burst measured by every
+  metric (3 sessions cold-starting concurrently, 9.9M raw tokens in 10 minutes, one request
+  writing 212,567 tokens of fresh cache) but the *smallest* intercept (4.0) of the six; window B
+  has almost no burst at all (458K raw tokens over the same 10 minutes, no request over 22,867
+  tokens of fresh cache) but the second-largest intercept (14.8). Window E is a second
+  counter-example: the largest raw-token total of the six in its first 10 minutes (9.6M, from 5
+  concurrent sessions), but all warm cache-reads (no cache-write over 17,476) and one of the
+  smallest intercepts (4.8).
 
-Neither explains the overshoot. The leading remaining explanation: the per-reading `tokens/pct`
+None of these explain the overshoot. The leading remaining explanation: the per-reading `tokens/pct`
 ratio *rises through the middle of a window and drops back down near the end* rather than scattering
 randomly (window A: 553,618 → 679,648 → 739,844 → 792,002 → 845,982 → 901,671 → 719,610; C is
 similarly shaped) — a curve, not noise, which a straight-line fit with a free intercept will absorb
