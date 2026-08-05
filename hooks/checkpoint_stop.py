@@ -77,7 +77,7 @@ def main():
     carry = uc.session_carry(transcript)
     if not carry:
         return
-    context, _last, _first = carry
+    context, _weighted, _last, _first = carry
     if context < CHECKPOINT_AT:
         return
 

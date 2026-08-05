@@ -66,18 +66,20 @@ def deny_reason(state, transcript):
     carry = uc.session_carry(transcript)
     if not carry:
         return None
-    context = carry[0]
-    if not context:
+    _context, weighted_context, _last, _first = carry
+    if not weighted_context:
         return None
 
     # An upper bound, not exact: context only grows from here, so the true
     # calls-remaining before GATE_AT_PCT is somewhat lower than this ratio.
-    calls_remaining = remaining_tokens / context
+    # remaining_tokens is weighted (per_pct is fit on weighted tokens), so the
+    # divisor must be too, or the ratio isn't calls at all.
+    calls_remaining = remaining_tokens / weighted_context
     if calls_remaining >= MARGIN_CALLS:
         return None
     return (
-        f"~{calls_remaining:.1f} calls of budget left ({remaining_tokens:,.0f} tokens at "
-        f"~{context:,} tokens/call, {backing} readings)",
+        f"~{calls_remaining:.1f} calls of budget left ({remaining_tokens:,.0f} weighted-tok at "
+        f"~{weighted_context:,.0f} weighted-tok/call, {backing} readings)",
         state["renews"],
     )
 

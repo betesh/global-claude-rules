@@ -36,6 +36,18 @@ TOKEN_FIELDS = (
     ("out", "output_tokens"),
 )
 
+# List-price ratios relative to base input, applied when weighting spend for the calibration
+# fit and the gate math below. A guess, not a measurement of what this account's cap actually
+# charges per token type — but backtested across four observed windows (usage/notes.md's
+# calibration section): fitting on tokens weighted this way tracks both held-out readings and
+# each window's confirmed true per_pct consistently better than counting every token type flat.
+TOKEN_WEIGHTS = {"in": 1.0, "cache-write": 1.25, "cache-read": 0.1, "out": 5.0}
+
+
+def weighted_sum(counts):
+    return sum(counts[name] * TOKEN_WEIGHTS[name] for name in counts)
+
+
 REPO_DIR = os.environ["REPO_DIR"]
 EVENTS_PATH = os.path.join(REPO_DIR, "usage", "events.jsonl")
 CONFIG_DIR = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
@@ -298,15 +310,15 @@ def scan_transcripts(since):
     return requests, sessions
 
 
-def tokens_through(requests, cutoff=None):
+def tokens_through(requests, cutoff=None, weighted=False):
     total = 0
     for when, counts, _ in requests.values():
         if cutoff is None or when <= cutoff:
-            total += sum(counts.values())
+            total += weighted_sum(counts) if weighted else sum(counts.values())
     return total
 
 
-def tokens_per_minute(requests, since, until):
+def tokens_per_minute(requests, since, until, weighted=False):
     """Token rate over a span, or 0 when the span is too short to mean anything.
 
     Averaging over the whole window instead answers a question nobody asked: it
@@ -317,12 +329,16 @@ def tokens_per_minute(requests, since, until):
     minutes = (until - since).total_seconds() / 60
     if minutes < 3:
         return 0
-    total = sum(sum(counts.values()) for when, counts, _ in requests.values() if since < when <= until)
+    values = (
+        (weighted_sum(counts) if weighted else sum(counts.values()))
+        for when, counts, _ in requests.values() if since < when <= until
+    )
+    total = sum(values)
     return total / minutes if total else 0
 
 
 def calibrate(reports, requests):
-    """Fit `pct = intercept + tokens / per_pct` over the window's reports.
+    """Fit `pct = intercept + weighted_tokens / per_pct` over the window's reports.
 
     Least squares across every reading, not the first-to-last delta: with three
     or more readings the fit is over-determined, so one mistyped percentage bends
@@ -334,10 +350,12 @@ def calibrate(reports, requests):
     offset into the slope, which is what makes a ratio fitted from one report
     disagree with the delta by a factor of two.
 
+    Fits on `weighted_sum` tokens rather than a flat count — see TOKEN_WEIGHTS above.
+
     Returns `(per_pct, intercept, n)`; `n` is how many readings backed it, and
     `n >= 2` is what separates a measured slope from a single-point guess.
     """
-    points = [(tokens_through(requests, r["_t"]), r["pct"]) for r in reports]
+    points = [(tokens_through(requests, r["_t"], weighted=True), r["pct"]) for r in reports]
     if len({t for t, _ in points}) >= 2:
         n = len(points)
         sx = sum(t for t, _ in points)
@@ -414,27 +432,33 @@ def window_state(events):
     per_pct, intercept, backing = calibrate(reports, requests)
 
     spent = sum(totals.values())
-    estimate = intercept + spent / per_pct if per_pct else None
+    weighted_spent = tokens_through(requests, weighted=True)
+    estimate = intercept + weighted_spent / per_pct if per_pct else None
 
     return {
         "window_start": window_start, "opened": opened, "unlogged": unlogged,
         "source": source, "requests": requests,
         "sessions": sessions, "totals": totals, "by_model": by_model, "spent": spent,
+        "weighted_spent": weighted_spent,
         "reports": reports, "last": last, "per_pct": per_pct, "intercept": intercept,
         "backing": backing, "estimate": estimate, "renews": renews, "basis": basis,
     }
 
 
 def session_carry(path):
-    """(context now, timestamp of the last request, timestamp of the first) for
-    one transcript, or None when it has no real request at all.
+    """(context now, weighted context now, timestamp of the last request,
+    timestamp of the first) for one transcript, or None when it has no real
+    request at all.
 
     Context is what the newest request sent — input plus both cache figures.
     Output tokens are not context: they are produced by the request rather than
     carried into it, and they reach the next one inside its cached prefix.
+    The weighted figure applies TOKEN_WEIGHTS, so it can be compared against a
+    weighted per-pct budget (calibrate() above) without mixing units.
     """
     first = last = None
     context = 0
+    weighted_context = 0.0
     try:
         with open(path, errors="replace") as f:
             for line in f:
@@ -448,9 +472,15 @@ def session_carry(path):
                 when = parse_time(entry.get("timestamp"))
                 if entry.get("type") != "assistant" or not isinstance(usage, dict) or not when:
                     continue
-                request_context = (usage.get("input_tokens") or 0) \
-                    + (usage.get("cache_creation_input_tokens") or 0) \
-                    + (usage.get("cache_read_input_tokens") or 0)
+                in_tokens = usage.get("input_tokens") or 0
+                cache_write = usage.get("cache_creation_input_tokens") or 0
+                cache_read = usage.get("cache_read_input_tokens") or 0
+                request_context = in_tokens + cache_write + cache_read
+                request_weighted = (
+                    in_tokens * TOKEN_WEIGHTS["in"]
+                    + cache_write * TOKEN_WEIGHTS["cache-write"]
+                    + cache_read * TOKEN_WEIGHTS["cache-read"]
+                )
                 # A synthetic assistant message carries an all-zero usage block and is
                 # usually the first line in a transcript — counting it as a request
                 # makes a session look like it started long before its real first one.
@@ -461,6 +491,7 @@ def session_carry(path):
                 if last is None or when >= last:
                     last = when
                     context = request_context
+                    weighted_context = request_weighted
     except OSError:
         return None
-    return (context, last, first) if first else None
+    return (context, weighted_context, last, first) if first else None

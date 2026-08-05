@@ -49,7 +49,7 @@ def gate_reason(state):
     if not (state["renews"] > uc.now):
         return None
     return (
-        f"the window is ~{min(estimate, 100):.0f}% spent — {state['per_pct']:,.0f} tokens/% "
+        f"the window is ~{min(estimate, 100):.0f}% spent — {state['per_pct']:,.0f} weighted-tok/% "
         f"fitted on {state['backing']} readings, last the {last['pct']}% at {uc.stamp(last['_t'])}",
         state["renews"],
     )
@@ -73,7 +73,7 @@ def carried_reason(events, session_id, transcript):
     carry = uc.session_carry(transcript)
     if not carry:
         return None
-    context, last, _first = carry
+    context, _weighted, last, _first = carry
     idle = (uc.now - last).total_seconds() / 60
     if idle < uc.CACHE_TTL_MINUTES or context < uc.CARRY_AT:
         return None
@@ -145,7 +145,7 @@ def main():
     if state["estimate"] is not None:
         print(
             f"credit ~{min(state['estimate'], 100):.0f}% used "
-            f"({state['spent']:,} tokens at {state['per_pct']:,.0f}/%, "
+            f"({state['weighted_spent']:,.0f} weighted-tok at {state['per_pct']:,.0f}/%, "
             f"{state['backing']} reading{'s' if state['backing'] != 1 else ''}), "
             f"renews {uc.stamp(state['renews'])} in {uc.duration(state['renews'] - uc.now)}"
         )

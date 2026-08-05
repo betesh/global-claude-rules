@@ -121,7 +121,7 @@ def main():
     # on it, rather than being surprised by the refusal.
     carry = uc.session_carry(transcript) if transcript else None
     if carry:
-        context, last, _first = carry
+        context, _weighted, last, _first = carry
         idle = (uc.now - last).total_seconds() / 60
         if idle >= uc.CACHE_TTL_MINUTES and context:
             gated = " — at or above that, the next prompt asks you to clear" if context >= uc.CARRY_AT else ""
@@ -142,7 +142,7 @@ def main():
                  "separate spend the scan misses from the rate — treat it as a guess"
         )
         line = (
-            f"  estimate ~{min(estimate, 100):.0f}% used, {per_pct:,.0f} tokens/% {fitted}"
+            f"  estimate ~{min(estimate, 100):.0f}% used, {per_pct:,.0f} weighted-tok/% {fitted}"
         )
         if estimate >= 100:
             line += "; that calibration says the window is already spent — expect a refusal, and "
@@ -150,12 +150,13 @@ def main():
         else:
             # Prefer the rate since the last reading: it reflects how many agents
             # are running now. Fall back to the window average only when that span
-            # is too short, and say so, because it embeds bursts already over.
-            rate = uc.tokens_per_minute(requests, last["_t"], uc.now)
+            # is too short, and say so, because it embeds bursts already over. Weighted,
+            # to match per_pct's units (calibrate() fits on weighted tokens).
+            rate = uc.tokens_per_minute(requests, last["_t"], uc.now, weighted=True)
             span = f"the {uc.duration(uc.now - last['_t'])} since that reading"
             if not rate:
                 elapsed = (uc.now - window_start).total_seconds() / 60
-                rate = spent / elapsed if elapsed > 0 else 0
+                rate = state["weighted_spent"] / elapsed if elapsed > 0 else 0
                 span = "the whole window, which still counts agents that have since stopped"
             if rate:
                 empty = uc.now + timedelta(minutes=(100 - estimate) * per_pct / rate)

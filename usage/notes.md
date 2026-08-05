@@ -22,7 +22,6 @@ ends. Readings toward goal 1 are in `usage/events.jsonl` (`usage-report` and `re
 | Where's the `CARRY_AT` knee (below which clearing isn't worth the interruption)? | 4 real TTL crossings, 71,903–231,467 tokens carried — all far above the 50,000 default | a crossing that carries less context, to bracket the knee from below |
 | Is `CHECKPOINT_AT` right? | 4 correlated `cleared` outcomes at the old 50,000 default (nudge_age_min 0.9–4.7 — user cleared within minutes every time), contexts 71,675–113,950 | lowered the default to 35,000 (2026-08-04, a guess — see `checkpoint_stop.py`'s docstring) to bracket the range below 50,000; watching for whether nudges there still get a quick `cleared`, or start going unanswered |
 | Is `MARGIN_CALLS=5` the right tool-gate headroom? | 1 forced trial: denied at `calls_remaining ≈ 1.0`, ahead of the prompt gate | an unforced, natural ceiling crossing |
-| Why does fitted `per_pct` overshoot true per_pct by 13–51% (see "Calibration" below)? | subagent-transcript gap (fixed) and other-client usage (ruled out by the user) each checked and closed; the shape that's left — tokens/pct rising through a window's middle then dropping near the end — looks like a curve, not noise | test whether a non-linear (or piecewise/most-recent-slope) model tracks the readings better than the whole-window least-squares line |
 
 ## Cost of not clearing (transcript scan, 2026-08-04)
 
@@ -207,6 +206,55 @@ consistently with it either.
 **Never drop the intercept** when fitting: forcing the line through the origin pushes pre-window
 spend the transcript scan can't see into the slope instead, which is what made an earlier one-shot
 ratio disagree with a delta fit by 2x.
+
+### Local-slope vs cost-weighted: backtest across A–D, and the model adopted
+
+Extends the two checks above — this section's held-out method, and "Does cost-weighting fix it?"'s
+whole-window refit — to compare two candidates against the current raw whole-window fit: the
+cost-weighted fit already shown above, and a local-slope model that re-anchors on only the two most
+recent readings instead of fitting the whole window. Same backtest as above: fit on the first *k*
+readings of a window, measure the fit's absolute error against the readings held out after it, for
+every *k* from 2 to *n* − 1.
+
+Held-out error, mean / max absolute error in pp across every *k*:
+
+| window | current (raw LSQ) | cost-weighted LSQ | local-slope (raw) | local-slope (weighted) |
+|---|---:|---:|---:|---:|
+| A | 18.2 / 23.8 | 12.9 / 17.2 | 21.9 / 33.2 (1 fit failure) | 16.3 / 27.3 (1 fit failure) |
+| B | 5.2 / 5.2 | 4.1 / 4.1 | 5.2 / 5.2 | 4.1 / 4.1 |
+| C | 15.1 / 46.4 | 10.8 / 30.0 | 11.0 / 46.4 | 8.2 / 30.0 |
+| D | 40.6 / 144.0 | 21.0 / 58.7 | 28.3 / 144.0 | 13.7 / 58.7 |
+
+"Fit failure": window A's readings 5 and 6 report the same pct (52, 52) back to back, so the
+two-point local slope is undefined for the split that lands on them — the whole-window fit still
+produces an answer where the local-slope model has none.
+
+Checked against each exhausted window's true per_pct (final transcript total / 100, same ground
+truth as the calibration table above — the weighted candidates are checked against the weighted
+version of that same total):
+
+| window | current | cost-weighted LSQ | local-slope (raw) | local-slope (weighted) |
+|---|---:|---:|---:|---:|
+| A | +15.9% | +8.2% | −24.3% | −14.9% |
+| B | +51.1% | +28.8% | +44.9% | +24.9% |
+| C | +31.3% | +19.1% | −87.5% | −82.9% |
+
+**Cost-weighted least squares wins consistently; local-slope does not.** The cost-weighted fit beats
+the current raw whole-window fit on both held-out error and true-value accuracy in every one of
+windows A–D — mean and max held-out error lower in all four, true-value overshoot roughly halved in
+all three exhausted windows — matching what "Does cost-weighting fix it?" already found for the
+whole-window residual, now also holding up out-of-sample. Local-slope is not a consistent win over
+either baseline: it beats cost-weighted LSQ's held-out error in two windows (C, D) but loses in A and
+ties in B, and its true-value accuracy is erratic — an 87.5% *undershoot* in C against a 44.9%
+overshoot in B, worse than the current model in both directions — and it can fail to produce a fit at
+all when two consecutive readings tie.
+
+Adopted: `calibrate()` in `hooks/usage_common.py` now fits on tokens weighted by `TOKEN_WEIGHTS`
+(cache-write ×1.25, cache-read ×0.1, output ×5 — the same guessed list-price ratios as above)
+instead of a flat count. `usage_report.py`'s estimate line, `usage_gate.py`'s gate math, and
+`usage_tool_gate.py`'s calls-remaining math (whose carried-context denominator is now weighted the
+same way, so it isn't divided by a differently-scaled number) all read the one fit through
+`window_state()`. Local-slope was tested and rejected — not adopted anywhere.
 
 ## Total tokens spent per window (2026-08-04)
 
