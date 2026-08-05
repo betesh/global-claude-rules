@@ -22,7 +22,7 @@ ends. Readings toward goal 1 are in `usage/events.jsonl` (`usage-report` and `re
 | Where's the `CARRY_AT` knee (below which clearing isn't worth the interruption)? | 4 real TTL crossings, 71,903–231,467 tokens carried — all far above the 50,000 default | a crossing that carries less context, to bracket the knee from below |
 | Is `CHECKPOINT_AT` right? | 4 correlated `cleared` outcomes at the old 50,000 default (nudge_age_min 0.9–4.7 — user cleared within minutes every time), contexts 71,675–113,950 | lowered the default to 35,000 (2026-08-04, a guess — see `checkpoint_stop.py`'s docstring) to bracket the range below 50,000; watching for whether nudges there still get a quick `cleared`, or start going unanswered |
 | Is `MARGIN_CALLS=5` the right tool-gate headroom? | 1 forced trial: denied at `calls_remaining ≈ 1.0`, ahead of the prompt gate | an unforced, natural ceiling crossing |
-| What does the cap actually measure, now that neither raw nor cost-weighted token totals order exhaustion correctly ("Total tokens spent per window")? | 5 windows: 3 exhausted (61.9–82.3M raw / 10.68–12.70M weighted), 2 not (D: 65.9M / 10.07M; E: 104.1M / 14.23M) — D sits inside the exhausted range on both measures, E sits above it on both | more exhausted/non-exhausted pairs to test whether it's cadence- or rate-shaped rather than cumulative-spend-shaped, or the actual mechanism if ever published |
+| What does the cap actually measure, now that a cost-weighted total still doesn't cleanly separate exhausted from non-exhausted windows ("Total tokens spent per window")? | 6 windows: 4 exhausted (61.9–104.1M raw / 10.68–14.23M weighted), 2 not (D: 65.9M / 10.07M; F: 71.6M / 10.87M) — D sits below every exhausted window on the weighted measure, but F overlaps it (above B, below A) | more exhausted/non-exhausted pairs to test whether it's cadence- or rate-shaped rather than cumulative-spend-shaped, or the actual mechanism if ever published |
 
 ## Cost of not clearing (transcript scan, 2026-08-04)
 
@@ -57,7 +57,7 @@ measurement yet, only the acceptance/timing data already in the table above.
 
 ## Calibration: tokens-per-percent by window
 
-`pct = intercept + tokens/per_pct`, fit by `calibrate()` in `hooks/usage_common.py`. Five windows
+`pct = intercept + tokens/per_pct`, fit by `calibrate()` in `hooks/usage_common.py`. Six windows
 measured so far:
 
 | window | readings | per_pct | intercept | max residual | cache-write share | true per_pct | vs true |
@@ -66,17 +66,19 @@ measured so far:
 | B (08-03 19:12) | 3 | 941,707 | 14.8 | 0.9pp | 2.4% | 624,564 | +50.8% |
 | C (08-04 00:13) | 9 | 1,080,381 | 21.4 | 7.7pp | 2.2% | 822,662 | +31.3% |
 | D (08-04 05:14) | 9 | 1,140,912 | 19.7 | 6.6pp | 4.0% | n/a | — |
-| E (08-04 10:14) | 7 | 1,148,961 | 4.8 | 3.8pp | 1.1% | n/a | — |
+| E (08-04 10:14) | 7 | 1,148,961 | 4.8 | 3.8pp | 1.1% | 1,041,380 | +10.3% |
+| F (08-04 15:16) | 3 | 1,421,011 | 5.5 | 1.5pp | 2.7% | n/a | — |
 
 (`true per_pct` here already includes the subagent-transcript fix below — see that section for what
 changed and by how much.)
 
-`true per_pct` only exists for windows the user confirmed running to exhaustion (A, B, C — see the
-`exhausted?` column below): its final transcript total *is* the 100% point, so `true per_pct =
-final total / 100` needs no fit at all. D and E have no such ground truth — neither reached 100%
-(E confirmed directly, by the user, as not exhausted), so there's nothing to divide by.
+`true per_pct` only exists for windows the user confirmed running to exhaustion (A, B, C, E — see
+the `exhausted?` column below): its final transcript total *is* the 100% point, so `true per_pct =
+final total / 100` needs no fit at all. D and F have no such ground truth — neither reached 100%,
+so there's nothing to divide by. (E was first reported as not exhausted, then corrected — see "Total
+tokens spent per window.")
 
-**The fitted `per_pct` overshoots true per_pct in every exhausted window, by a lot (+13–51%).**
+**The fitted `per_pct` overshoots true per_pct in every exhausted window, by a lot (+10–51%).**
 This isn't the residual the fit already reports against its own readings (the `max residual`
 column) — it's checked against the one number in each window that isn't a fit at all. Per-reading,
 the gap widens and narrows unevenly rather than shrinking as the window goes on: window A's readings
@@ -104,21 +106,25 @@ list-price ratios, not a measurement) instead of raw tokens:
 | B | 0.9pp | 0.7pp | 26.4% | 14.1% | +50.8% | +27.9% |
 | C | 7.7pp | 5.6pp | 14.6% | 8.5% | +31.3% | +19.1% |
 | D | 6.6pp | 4.5pp | 33.3% | 17.4% | n/a | n/a |
-| E | 3.8pp | 2.8pp | 3.5% | 2.7% | n/a | n/a |
+| E | 3.8pp | 2.8pp | 3.5% | 2.7% | +10.3% | +8.2% |
+| F | 1.5pp | 1.1pp | 66.7% | 37.8% | n/a | n/a |
 
 (CV = coefficient of variation, `stdev/mean`, of each window's per-reading `tokens/pct` ratios — how
-scattered a single window's own readings are around their own average, independent of any fit.)
+scattered a single window's own readings are around their own average, independent of any fit. F's
+CV is the highest measured by far — only 3 readings, and the first jumps from 6% to 35%, so there's
+little in that window to average the noise over.)
 
-**Yes to both questions, and consistently across all five windows.** Weighting tokens by their
+**Yes to both questions, and consistently across all six windows.** Weighting tokens by their
 list-price ratio instead of counting them flat:
 
 - **Makes it more linear.** The fit's own max residual drops in every window (largest: C's 7.7pp →
   5.6pp), and the per-reading CV — how much a window's own readings disagree about tokens/pct
   among themselves, with no fit involved — drops in every window too, though by less where it was
   already tight to start with (E: already the calmest window at 3.5%, still improves to 2.7%; D:
-  the noisiest, roughly halves from 33.3% → 17.4%).
-- **Brings it closer to true per_pct.** In all three exhausted windows the overshoot against the
-  ground-truth `final total / 100` roughly halves too (B: +52.1% → +30.0%; A and C similarly).
+  the noisiest of the exhausted/uncertain group, roughly halves from 33.3% → 17.4%).
+- **Brings it closer to true per_pct.** In all four exhausted windows the overshoot against the
+  ground-truth `final total / 100` shrinks (B: +52.1% → +30.0%; A and C similarly; E: +10.3% →
+  +8.2%, a smaller absolute move since it started closer to true than any other window).
 
 It doesn't close the gap, though — weighted `per_pct` still overshoots true per_pct by 4.6–28%, worst
 in B in both versions. So token-type mix explains a real share of the earlier overshoot, but not all
@@ -211,7 +217,7 @@ consistently with it either.
 spend the transcript scan can't see into the slope instead, which is what made an earlier one-shot
 ratio disagree with a delta fit by 2x.
 
-### Local-slope vs cost-weighted: backtest across A–E, and the model adopted
+### Local-slope vs cost-weighted: backtest across A–F, and the model adopted
 
 Extends the two checks above — this section's held-out method, and "Does cost-weighting fix it?"'s
 whole-window refit — to compare two candidates against the current raw whole-window fit: the
@@ -229,12 +235,15 @@ Held-out error, mean / max absolute error in pp across every *k*:
 | C | 15.1 / 46.4 | 10.8 / 30.0 | 11.0 / 46.4 | 8.2 / 30.0 |
 | D | 40.6 / 144.0 | 21.0 / 58.7 | 28.3 / 144.0 | 13.7 / 58.7 |
 | E | 15.0 / 29.9 | 10.1 / 19.9 | 13.0 / 29.9 (1 fit failure) | 8.8 / 19.9 (1 fit failure) |
+| F | 3.3 / 3.3 | 2.4 / 2.4 | 3.3 / 3.3 | 2.4 / 2.4 |
 
 "Fit failure": window A's readings 5 and 6 report the same pct (52, 52) back to back, so the
 two-point local slope is undefined for the split that lands on them — the whole-window fit still
 produces an answer where the local-slope model has none. E fails the same way, at the same spot in
 its own sequence (readings 5 and 6 both report 79) — a second, independent occurrence of the same
-failure mode, not a one-off.
+failure mode, not a one-off. (F has too few readings for this split to arise — its one k=2 backtest
+is the degenerate case, same as B, where the local-slope model and the whole-window fit are the same
+two points.)
 
 Checked against each exhausted window's true per_pct (final transcript total / 100, same ground
 truth as the calibration table above — the weighted candidates are checked against the weighted
@@ -245,16 +254,18 @@ version of that same total):
 | A | +15.9% | +8.2% | −24.3% | −14.9% |
 | B | +51.1% | +28.8% | +44.9% | +24.9% |
 | C | +31.3% | +19.1% | −87.5% | −82.9% |
+| E | +10.3% | +8.2% | +65.2% | +49.6% |
 
 **Cost-weighted least squares wins consistently; local-slope does not.** The cost-weighted fit beats
-the current raw whole-window fit on both held-out error and true-value accuracy in every one of
-windows A–E — mean and max held-out error lower in all five, true-value overshoot roughly halved in
-all three exhausted windows — matching what "Does cost-weighting fix it?" already found for the
-whole-window residual, now also holding up out-of-sample. Local-slope is not a consistent win over
-either baseline: it beats cost-weighted LSQ's held-out error in two windows (C, D) but loses in A and
-ties in B, and its true-value accuracy is erratic — an 87.5% *undershoot* in C against a 44.9%
-overshoot in B, worse than the current model in both directions — and it can fail to produce a fit at
-all when two consecutive readings tie.
+the current raw whole-window fit on both held-out error and true-value accuracy in every window
+tested — mean and max held-out error lower in all six (A–F), true-value overshoot smaller in all
+four exhausted windows (A, B, C, E) — matching what "Does cost-weighting fix it?" already found for
+the whole-window residual, now also holding up out-of-sample. Local-slope is not a consistent win
+over either baseline: it beats cost-weighted LSQ's held-out error in some windows (C, D) but loses in
+others (A, E) or ties (B, F), and its true-value accuracy is erratic in both direction and
+magnitude — undershoots by 24–88% in A and C, overshoots by 25–65% in B and E — worse than the
+current model in most of these, and it can fail to produce a fit at all when two consecutive readings
+tie (now observed independently in both A and E).
 
 Adopted: `calibrate()` in `hooks/usage_common.py` now fits on tokens weighted by `TOKEN_WEIGHTS`
 (cache-write ×1.25, cache-read ×0.1, output ×5 — the same guessed list-price ratios as above)
@@ -275,55 +286,55 @@ don't reliably land right at the boundary, so a transcript sum is the more exact
 | B | 08-03 19:12 | 61,929,136 | 544 | 46 | 3h42m in (74% of the window) | yes |
 | C | 08-04 00:13 | 82,266,244 | 391 | 33 | 2h49m in (56% of the window) | yes |
 | D | 08-04 05:14 | 65,889,854 | 408 | 15 | 5h00m in (100% of the window) | **no** |
-| E | 08-04 10:14 | 104,138,036 | 625 | 13 | 1h47m in (35% of the window) | **no** |
+| E | 08-04 10:14 | 104,138,036 | 625 | 13 | 1h47m in (35% of the window) | yes |
+| F | 08-04 15:16 | 71,583,169 | 393 | 6 | 4h51m in (95% of the window) | **no** |
 
 `exhausted?` is the user's own account of which windows they ran out of credit in, not something
-derived from the scan — it's the ground truth the rest of this section is checked against. E's "no"
-was given directly, in response to this section being extended.
+derived from the scan — it's the ground truth the rest of this section is checked against. E was
+first reported as not exhausted, then corrected: it *was* exhausted. Every figure below already
+reflects the correction.
 
-**"Last token used" no longer predicts it — window E breaks the pattern.** A, B, C all stopped
-spending well before their 5-hour mark (56–74%) and then show no further tokens until the *next*
-window's first request — the idle-until-renewal shape a hard cap produces — and all three are
-confirmed exhausted; D's last token lands right at the 5h00m boundary with no idle gap before it, and
-is the one confirmed not exhausted; both fit the theory that an idle gap after an early stop means the
-cap was hit. **E has that same early-stop-then-idle-gap shape — its last token lands at 35% of the
-window, then nothing for 195 minutes until the next window's first token — yet the user confirmed E
-was not exhausted.** So the shape that sorted every window correctly through D no longer does: an
-idle gap after an early stop is *consistent with* hitting the cap, but isn't proof of it, because an
-idle window (nobody working, for reasons that have nothing to do with credit) produces the identical
-trace. Exhaustion can only be established by asking; it can no longer be read off the transcript
-shape alone.
+**"Last token used" predicts it correctly across all six windows measured so far.** A, B, C, E all
+stopped spending well before their 5-hour mark (35–74%) and then show no further tokens until the
+*next* window's first request — the idle-until-renewal shape a hard cap produces — and all four are
+confirmed exhausted. D and F's last tokens both land late (95–100% of the window) with only a short
+gap before the next window's first request — continuous work still running when the window happened
+to roll over — and both are confirmed not exhausted. Directly corroborated for A and C by a
+`usage-report` reading next to the stop (A: 98% two minutes before its last token; C: 97% seven
+minutes before); B's last reading (60%, 49 minutes before its last token) is looser but agrees in
+shape. This is a correlation over six self-reported labels, not a proven mechanism — an idle window
+with nobody working would leave the same trace as a capped one — so it's a useful prior, not a
+substitute for asking.
 
 **Raw token totals do not order the same way exhaustion does — the first sign the cap isn't a flat
 token count.** D spent *more* raw tokens (65.9M) than B did before B hit its cap (61.9M), yet D
-didn't exhaust; E sharpens this further, spending *more raw tokens (104.1M) than every window
-measured, exhausted or not* — nearly 22M above C, the largest exhausted total — while still not
-exhausting. So excluding D and E, the three confirmed-exhausted windows give mean 71.7M, range
-61.9M–82.3M (±8.3M, ~12% — one standard deviation) as the token-count estimate of the cap, but two
-non-exhausted windows now sit on either side of that range (D just inside it, E well above it), which
-rules raw token count out as the cap measure more firmly than D alone did.
+didn't exhaust. The four confirmed-exhausted windows (A, B, C, E) give mean 79.8M, range
+61.9M–104.1M — noticeably wider now that E (104.1M, exhausted) is included — and both non-exhausted
+windows (D: 65.9M, F: 71.6M) sit comfortably inside that range rather than outside it, which is the
+clearest sign yet that raw token count alone can't be what the cap is measured in.
 
 A cost-weighted total, using the same guessed list-price ratios as above (cache-write ×1.25,
 cache-read ×0.1, output ×5 — not verified against whatever this cap actually charges), was proposed
-here as a fix once D was the only counterexample:
+here as a fix once D was the only non-exhausted counterexample:
 
 | window | weighted total | exhausted? |
 |---|---:|---|
-| E | 14.23M | **no** |
-| C | 12.70M | yes |
 | A | 11.40M | yes |
 | B | 10.68M | yes |
+| C | 12.70M | yes |
 | D | 10.07M | **no** |
+| E | 14.23M | yes |
+| F | 10.87M | **no** |
 
-**E refutes that fix rather than confirming it.** The reordering held with four points — D sat below
-every exhausted window — but E was exactly the next non-exhausted window this section called for as
-the test, and its weighted total lands *above* every exhausted window instead of below them.
-Cost-weighting still fixes the raw-count problem (D no longer sits inside the exhausted range), but
-with a non-exhausted window bracketing the exhausted range on **both** sides now (D below, E above),
-these weights cannot correspond to a single cost-denominated cap threshold. Either the guessed
-list-price ratios are wrong, or exhaustion isn't a fixed cumulative-spend threshold at all — burst
-rate, request cadence, or a limit that isn't token-shaped are equally consistent with what's been
-measured so far, and nothing here distinguishes between them yet.
+**Weighting helps, but a single threshold still doesn't separate the two groups.** D (10.07M) sits
+below every exhausted window, which is what motivated the fix in the first place, and E — now
+correctly exhausted at 14.23M, the largest total measured — extends the exhausted range upward
+without breaking it. But F (10.87M) lands *between* B (10.68M, exhausted) and A (11.40M, exhausted)
+instead of below the whole range: one non-exhausted window (D) sits cleanly under every exhausted
+one, the other (F) overlaps them. So cost-weighting narrows the overlap the raw count left wide open,
+but these particular weights still don't give a clean cap threshold. Either the guessed list-price
+ratios need adjusting, or exhaustion isn't a pure cumulative-spend threshold at all — burst rate or
+request cadence could matter alongside total spend — and nothing measured so far distinguishes those.
 
 Conditions: every transcript on the machine, across all 4 projects — this is an account-wide window,
 not a per-repo one. 100% `claude-sonnet-5` in every window, so model mix isn't hiding in this number.
