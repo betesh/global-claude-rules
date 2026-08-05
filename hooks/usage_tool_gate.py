@@ -98,9 +98,11 @@ def main():
     why, until = reason
     message = (
         f"Credit is nearly out: {why}. Denying this tool call rather than let it spend more. "
-        f"Sleep in the foreground until the window renews at {uc.stamp(until)} "
-        f"({uc.duration(until - uc.now)} from now), per rules/usage-limits-and-context.md — do "
-        "not retry this call, and do not make further tool calls until then."
+        f"Wait with a plain foreground `sleep` (chained in pieces if the shell caps a single call "
+        f"short of the full wait) until the window renews at {uc.stamp(until)} "
+        f"({uc.duration(until - uc.now)} from now), per rules/usage-limits-and-context.md — never "
+        "`run_in_background`, which won't resume this session on its own. Do not retry this call, "
+        "and make no further tool calls until then."
     )
     print(json.dumps({
         "hookSpecificOutput": {
