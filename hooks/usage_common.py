@@ -464,6 +464,13 @@ def session_carry(path):
     carried into it, and they reach the next one inside its cached prefix.
     The weighted figure applies TOKEN_WEIGHTS, so it can be compared against a
     weighted per-pct budget (calibrate() above) without mixing units.
+
+    A `/compact` rewrites everything before it into one summary turn (marked
+    `isCompactSummary` on a plain user message, no `usage` of its own), so a
+    pre-compact request's usage no longer says what the next request will
+    send. Context resets to 0 at that line rather than falling back to the
+    last pre-compact figure — there is no measurement of the post-compact
+    size until a real request follows it.
     """
     first = last = None
     context = 0
@@ -471,14 +478,19 @@ def session_carry(path):
     try:
         with open(path, errors="replace") as f:
             for line in f:
-                if '"usage"' not in line:
+                if '"usage"' not in line and '"isCompactSummary"' not in line:
                     continue
                 try:
                     entry = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                usage = (entry.get("message") or {}).get("usage")
                 when = parse_time(entry.get("timestamp"))
+                if entry.get("isCompactSummary"):
+                    if when:
+                        last = when
+                    context, weighted_context = 0, 0.0
+                    continue
+                usage = (entry.get("message") or {}).get("usage")
                 if entry.get("type") != "assistant" or not isinstance(usage, dict) or not when:
                     continue
                 in_tokens = usage.get("input_tokens") or 0
