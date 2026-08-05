@@ -174,6 +174,13 @@ def find_window_start(events):
     - no boundary line at all: nothing anchors the roll-forward, because traffic
       reaching back past wherever the scan begins gives an arbitrary phase. The
       caller treats now as the start and says so.
+
+    The roll-forward can still find nothing: a gate hook runs before the prompt
+    that triggered it is written to the transcript, so the request that actually
+    crossed the boundary is invisible to the scan that would have found it. The
+    window is exactly WINDOW long, so the boundary itself — logged + WINDOW — is
+    still a better estimate than now, which would overstate the start by however
+    long the session sat idle before that prompt.
     """
     logged = logged_window_start(events)
     if logged is None:
@@ -186,7 +193,9 @@ def find_window_start(events):
     for when in sorted(when for when, _, _ in requests.values()):
         if cursor is None or when >= cursor:
             start, cursor = when, when + WINDOW
-    return start if start and now - start < WINDOW else None
+    if start is None:
+        start = logged + WINDOW
+    return start if now - start < WINDOW else None
 
 
 def _ppid(pid):
