@@ -127,10 +127,16 @@ Not ruled out — unmeasured, because nothing on this machine can measure it:
   ingesting ~434K tokens of history before failing with a 529 (server overloaded) — a near-instant
   rejection wouldn't take 4 minutes, so the input tokens were very likely already sent and billed
   before the failure. Checked `~/.claude/debug` and the background job's `timeline.jsonl` for any
-  record of the actual cost: neither has one. There is currently no way to measure what a compact
-  call, successful or failed, actually costs — not from local transcripts, not after the fact. If a
-  `PostCompact` hook or transcript field ever exposes it, check it against every window's intercept
-  the way burst-at-open was checked above.
+  record of the actual cost: neither has one. Checked every `/compact` invocation on the machine,
+  not just this one, to see whether the gap is specific to failures: 18 total (16 succeeded, 1
+  failed with the 529 above, 1 abandoned mid-compact when its session ended before resolving) — all
+  16 successes resolve to an isCompactSummary line with no `usage` field, same as the failure, so
+  this is systematic across every compact call rather than a failure-specific gap. The successful
+  ones took 125–495 seconds, consistent with cost scaling with context size the same way the
+  failure's 4-minute run suggested, but there is still no number to attach to any of them. There is
+  currently no way to measure what a compact call, successful or failed, actually costs — not from
+  local transcripts, not after the fact. If a `PostCompact` hook or transcript field ever exposes
+  it, check it against every window's intercept the way burst-at-open was checked above.
 
   Fixed the part of this that was independently a bug: `find_window_start`'s roll-forward only
   looked at `usage`-bearing lines, so a `/compact` invocation (which never has one) could be
