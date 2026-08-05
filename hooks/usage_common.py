@@ -160,42 +160,91 @@ def logged_window_start(events):
     return None
 
 
+def scan_compact_attempts(since):
+    """Timestamps of every `/compact` invocation since `since`, successful or not.
+
+    Neither outcome leaves a token count anywhere: a failed attempt ends in a
+    system/local_command error with no `usage` field, and a successful one is
+    replaced by the isCompactSummary line, which also carries none. Both still
+    reach the API — a failed one can spend real minutes, and real tokens,
+    ingesting the prior context before erroring out — so a boundary search that
+    only looks at `usage` lines can miss the request that actually opened a
+    window. This exists to hand find_window_start() that timestamp too.
+    """
+    since_prefix = since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    attempts = []
+    pattern = os.path.join(CONFIG_DIR, "projects", "*", "*.jsonl")
+    for path in glob.glob(pattern):
+        try:
+            if datetime.fromtimestamp(os.path.getmtime(path), timezone.utc) < since:
+                continue
+            with open(path, errors="replace") as f:
+                for line in f:
+                    if '"/compact"' not in line:
+                        continue
+                    mark = line.find('"timestamp":"')
+                    if mark != -1 and line[mark + 13:mark + 32] < since_prefix:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if entry.get("type") != "user":
+                        continue
+                    message = entry.get("message")
+                    if not isinstance(message, dict) or message.get("content") != "/compact":
+                        continue
+                    when = parse_time(entry.get("timestamp"))
+                    if when and when >= since:
+                        attempts.append(when)
+        except OSError:
+            continue
+    return attempts
+
+
 def find_window_start(events):
-    """When the window now open began, or None when no window is open.
+    """(start, confirmed) for the window now open, or (None, True) when none is.
 
     Three cases, and the middle one is why this is not just a freshness check:
 
-    - the logged start is younger than a window: that window is still running.
+    - the logged start is younger than a window: that window is still running,
+      confirmed by definition — it was itself derived from real evidence.
     - it is older: at least one window has turned over since. The one now open
       began at the first request after the old one expired, and that timestamp is
       in the transcripts — so roll forward through them a window at a time rather
       than stamping the start as now. Stamping now is what makes a window look
-      short, by however long it took a session to start and notice.
+      short, by however long it took a session to start and notice. A `/compact`
+      counts as a request here too (see scan_compact_attempts), since it reaches
+      the API whether or not it leaves a token count behind.
     - no boundary line at all: nothing anchors the roll-forward, because traffic
       reaching back past wherever the scan begins gives an arbitrary phase. The
       caller treats now as the start and says so.
 
     The roll-forward can still find nothing: a gate hook runs before the prompt
     that triggered it is written to the transcript, so the request that actually
-    crossed the boundary is invisible to the scan that would have found it. The
-    window is exactly WINDOW long, so the boundary itself — logged + WINDOW — is
-    still a better estimate than now, which would overstate the start by however
-    long the session sat idle before that prompt.
+    crossed the boundary is invisible to the scan that would have found it. When
+    that happens, `confirmed` comes back False and the caller must not persist
+    the result — logged + WINDOW is only an arithmetic placeholder, and the next
+    call (this session's next prompt, or another session's) should roll forward
+    again with whatever the transcripts have gained by then, rather than treat
+    the placeholder as settled for the rest of the window's life.
     """
     logged = logged_window_start(events)
     if logged is None:
-        return None
+        return None, True
     if now - logged < WINDOW:
-        return logged
+        return logged, True
 
     requests, _ = scan_transcripts(logged + WINDOW)
+    candidates = [when for when, _, _ in requests.values()] + scan_compact_attempts(logged + WINDOW)
     start, cursor = None, None
-    for when in sorted(when for when, _, _ in requests.values()):
+    for when in sorted(candidates):
         if cursor is None or when >= cursor:
             start, cursor = when, when + WINDOW
+    confirmed = start is not None
     if start is None:
         start = logged + WINDOW
-    return start if now - start < WINDOW else None
+    return (start, confirmed) if now - start < WINDOW else (None, True)
 
 
 def _ppid(pid):
@@ -406,12 +455,14 @@ def window_state(events):
     if renews:
         window_start = renews - WINDOW
         opened = False
+        confirmed = True
         source = "derived from a reported renewal"
     else:
-        window_start = find_window_start(events)
+        window_start, confirmed = find_window_start(events)
         opened = window_start is None
         if opened:
             window_start = now
+            confirmed = True
         source = "this session's start, with nothing in the log to place it" if opened \
             else "the first request after the previous window expired"
         renews = window_start + WINDOW
@@ -420,9 +471,11 @@ def window_state(events):
     # Worth writing down unless the log already says the same thing. The minutes
     # of tolerance are because a start derived from a reported renewal is only as
     # precise as the minute the user read off, and re-logging on that jitter would
-    # add a line per session for no new information.
+    # add a line per session for no new information. Never persists an
+    # unconfirmed guess: doing so would freeze it in as "known" and stop any
+    # later call from ever rolling forward again within this window's life.
     known = logged_window_start(events)
-    unlogged = known is None or abs((window_start - known).total_seconds()) > 120
+    unlogged = confirmed and (known is None or abs((window_start - known).total_seconds()) > 120)
 
     requests, sessions = scan_transcripts(window_start)
     totals = {name: 0 for name, _ in TOKEN_FIELDS}
