@@ -121,7 +121,10 @@ def main():
         print(
             f"Credit is out: {why}. Not sending this request. The window renews at "
             f"{uc.stamp(until)}, {uc.duration(until - uc.now)} from now — wait until then, or set "
-            f"CLAUDE_USAGE_GATE_PCT above {uc.GATE_AT_PCT:.0f} to override.",
+            f"CLAUDE_USAGE_GATE_PCT above {uc.GATE_AT_PCT:.0f} to override. Wait with a plain "
+            "foreground `sleep` (chained in pieces if the shell caps a single call short of the "
+            "full wait) — never `run_in_background`: a backgrounded wait's completion does not "
+            "resume an idle session by itself, so the wait never actually ends.",
             file=sys.stderr,
         )
         sys.exit(2)
