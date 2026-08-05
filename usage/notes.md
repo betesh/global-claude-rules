@@ -21,7 +21,7 @@ ends. Readings toward goal 1 are in `usage/events.jsonl` (`usage-report` and `re
 | open question | current evidence | what's needed |
 |---|---|---|
 | Given that `per_pct` vary ~73% window to window, how many data points for the current window is enough to model per_pct for the remainder of the window? | see "How reliably the fit predicts held-out readings" below: no small, fixed count is reliable | readings taken only while every agent on the machine is idle, to see whether that removes the regime-shift noise |
-| Why does even the cost-weighted fit still overshoot true per_pct (by 4.6–28%)? | curve-shaped per-reading ratios (rising through a window's middle, falling near the end) fit poorly by any straight line; missing subagent transcripts, non-CLI usage, a timestamp-parsing bug, and a burst of concurrent cold-starts at window-open are ruled out as causes | whether pct is genuinely non-linear in tokens over a window, or a piecewise/regime-shift model would close the rest of the gap |
+| Why does even the cost-weighted fit still overshoot true per_pct (by 4.6–28%)? | curve-shaped per-reading ratios (rising through a window's middle, falling near the end) fit poorly by any straight line; missing subagent transcripts, non-CLI usage, a timestamp-parsing bug, and a burst of concurrent cold-starts at window-open are ruled out as causes; a `/compact` call's own invisible token cost is a live, unmeasured candidate | whether pct is genuinely non-linear in tokens over a window, a piecewise/regime-shift model, or spend from `/compact` calls that no local record can measure |
 | Where's the `CARRY_AT` knee (below which clearing isn't worth the interruption)? | 4 real TTL crossings, 71,903–231,467 tokens carried — all far above the 50,000 default | a crossing that carries less context, to bracket the knee from below |
 | Is `CHECKPOINT_AT` right? | 4 correlated `cleared` outcomes at the old 50,000 default (nudge_age_min 0.9–4.7 — user cleared within minutes every time), contexts 71,675–113,950 | lowered the default to 35,000 (2026-08-04, a guess — see `checkpoint_stop.py`'s docstring) to bracket the range below 50,000; watching for whether nudges there still get a quick `cleared`, or start going unanswered |
 | Is `MARGIN_CALLS=5` the right tool-gate headroom? | 1 forced trial: denied at `calls_remaining ≈ 1.0`, ahead of the prompt gate | an unforced, natural ceiling crossing |
@@ -117,6 +117,31 @@ Ruled out as causes:
   counter-example: the largest raw-token total of the six in its first 10 minutes (9.6M, from 5
   concurrent sessions), but all warm cache-reads (no cache-write over 17,476) and one of the
   smallest intercepts (4.8).
+
+Not ruled out — unmeasured, because nothing on this machine can measure it:
+
+- **A `/compact` invocation, successful or failed, spends real tokens that never appear in any
+  `usage` field anywhere.** A successful compact is replaced by the isCompactSummary transcript
+  line; a failed one leaves only a system/local_command error. Neither carries a token count.
+  Found directly: a background session's `/compact` at 2026-08-05 09:12:59 spent 4 minutes
+  ingesting ~434K tokens of history before failing with a 529 (server overloaded) — a near-instant
+  rejection wouldn't take 4 minutes, so the input tokens were very likely already sent and billed
+  before the failure. Checked `~/.claude/debug` and the background job's `timeline.jsonl` for any
+  record of the actual cost: neither has one. There is currently no way to measure what a compact
+  call, successful or failed, actually costs — not from local transcripts, not after the fact. If a
+  `PostCompact` hook or transcript field ever exposes it, check it against every window's intercept
+  the way burst-at-open was checked above.
+
+  Fixed the part of this that was independently a bug: `find_window_start`'s roll-forward only
+  looked at `usage`-bearing lines, so a `/compact` invocation (which never has one) could be
+  invisible to it — the request that opened a window would go unfound, and the fallback estimate
+  (`logged + WINDOW`) got permanently persisted as if confirmed, never re-derived even once real
+  evidence existed. `scan_compact_attempts()` now feeds the invocation's own timestamp into the
+  roll-forward, and an unconfirmed fallback is no longer written to the log — confirmed on the
+  window whose boundary prompted this: the SessionStart that computed 06:12:37 had zero evidence
+  available yet (correctly `confirmed=False` under the fix), and the very next `/compact`
+  invocation two minutes later resolves the roll-forward to 09:12:59, matching what was observed
+  directly. This fixes the boundary being *wrong*; it does not make the compact's cost *visible*.
 
 None of these explain the overshoot. The leading remaining explanation: the per-reading `tokens/pct`
 ratio *rises through the middle of a window and drops back down near the end* rather than scattering
