@@ -33,28 +33,6 @@ def parse_args():
     return parser.parse_args()
 
 
-def gate_reason(state):
-    """Why this request must not be sent, or None to let it through.
-
-    The fitted estimate is the only ground, and it is not a trustworthy one. It
-    has been wrong by a factor of two in this repo's own measurements, and
-    refusing on a bad one idles every agent on the machine until the window
-    turns over, which is the more expensive mistake because nobody notices it.
-    So it blocks only when a measured slope stands behind it (two or more
-    readings) and the renewal it would wait for is a time the log actually knows.
-    """
-    estimate, last = state["estimate"], state["last"]
-    if estimate is None or estimate < uc.GATE_AT_PCT or state["backing"] < 2:
-        return None
-    if not (state["renews"] > uc.now):
-        return None
-    return (
-        f"the window is ~{min(estimate, 100):.0f}% spent — {state['per_pct']:,.0f} weighted-tok/% "
-        f"fitted on {state['backing']} readings, last the {last['pct']}% at {uc.stamp(last['_t'])}",
-        state["renews"],
-    )
-
-
 def carried_reason(events, session_id, transcript):
     """Why this session should clear before paying for a full cache rewrite, or
     None.
@@ -115,7 +93,7 @@ def main():
     if state["unlogged"]:
         uc.log_boundary(session_id, state["window_start"])
 
-    reason = gate_reason(state)
+    reason = uc.gate_reason(state)
     if reason:
         why, until = reason
         print(

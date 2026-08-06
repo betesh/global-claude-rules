@@ -58,7 +58,7 @@ now = datetime.now().astimezone()
 # last points of a window are worth less than the cost of discovering the
 # ceiling by being refused, and the estimate carries a percentage point or two
 # of slack.
-GATE_AT_PCT = float(os.environ.get("CLAUDE_USAGE_GATE_PCT", "97"))
+GATE_AT_PCT = float(os.environ.get("CLAUDE_USAGE_GATE_PCT", "99"))
 
 # Below this idle gap the prompt cache is confirmed still warm (a 53.8-minute
 # gap left cache-read intact); at or above it every observed gap has come back
@@ -505,6 +505,32 @@ def window_state(events):
         "reports": reports, "last": last, "per_pct": per_pct, "intercept": intercept,
         "backing": backing, "estimate": estimate, "renews": renews, "basis": basis,
     }
+
+
+def gate_reason(state):
+    """Why a request must not be sent, or None to let it through.
+
+    Shared by usage_gate.py (a prompt) and usage_compact_gate.py (a /compact):
+    both spend real tokens against the same window, and a /compact can spend
+    them even when it fails (usage/notes.md: a failed one spent ~4 minutes
+    ingesting ~434K tokens before a 529). The fitted estimate is the only
+    ground, and it is not a trustworthy one — it has been wrong by a factor of
+    two in this repo's own measurements, and refusing on a bad one idles every
+    agent on the machine until the window turns over, which is the more
+    expensive mistake because nobody notices it. So it blocks only when a
+    measured slope stands behind it (two or more readings) and the renewal it
+    would wait for is a time the log actually knows.
+    """
+    estimate, last = state["estimate"], state["last"]
+    if estimate is None or estimate < GATE_AT_PCT or state["backing"] < 2:
+        return None
+    if not (state["renews"] > now):
+        return None
+    return (
+        f"the window is ~{min(estimate, 100):.0f}% spent — {state['per_pct']:,.0f} weighted-tok/% "
+        f"fitted on {state['backing']} readings, last the {last['pct']}% at {stamp(last['_t'])}",
+        state["renews"],
+    )
 
 
 def session_carry(path):
