@@ -1,11 +1,12 @@
 #!/bin/sh
 # Install (or remove) every hook this repo ships: the SessionStart credit-window
 # report, the UserPromptSubmit gate, the PreToolUse gate on individual tool
-# calls, the PreToolUse warning on one file's accumulating Edit payload, and
-# the Stop nudge to checkpoint a large session that never idled.
+# calls, the PreToolUse warning on one file's accumulating Edit payload, the
+# PreCompact gate on starting a compact, and the Stop nudge to checkpoint a
+# large session that never idled.
 #
-#   ./install-hooks.sh              install / update all five hooks
-#   ./install-hooks.sh --uninstall  remove all five
+#   ./install-hooks.sh              install / update all six hooks
+#   ./install-hooks.sh --uninstall  remove all six
 #   ./install-hooks.sh --help
 #
 # One script because they share a single settings.json and a single
@@ -45,15 +46,16 @@ WINDOW="$HOOKS_DIR/usage-window.sh"
 GATE="$HOOKS_DIR/usage-gate.sh"
 TOOLGATE="$HOOKS_DIR/usage-tool-gate.sh"
 EDITWARN="$HOOKS_DIR/edit-payload-warn.sh"
+COMPACTGATE="$HOOKS_DIR/usage-compact-gate.sh"
 CHECKPOINT="$HOOKS_DIR/checkpoint-stop.sh"
 
-for script in "$WINDOW" "$GATE" "$TOOLGATE" "$EDITWARN" "$CHECKPOINT"; do
+for script in "$WINDOW" "$GATE" "$TOOLGATE" "$EDITWARN" "$COMPACTGATE" "$CHECKPOINT"; do
 	[ -f "$script" ] || {
 		echo "install-hooks.sh: hook script not found at $script" >&2
 		exit 1
 	}
 done
-chmod +x "$WINDOW" "$GATE" "$TOOLGATE" "$EDITWARN" "$CHECKPOINT"
+chmod +x "$WINDOW" "$GATE" "$TOOLGATE" "$EDITWARN" "$COMPACTGATE" "$CHECKPOINT"
 
 CONFIG_DIR=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 SETTINGS="$CONFIG_DIR/settings.json"
@@ -62,7 +64,7 @@ mkdir -p "$CONFIG_DIR"
 # `resume` and `compact` are left out of SessionStart: they continue a session
 # whose window is already reported, and re-reporting it would spend context to
 # say the same thing.
-WINDOW="$WINDOW" GATE="$GATE" TOOLGATE="$TOOLGATE" EDITWARN="$EDITWARN" CHECKPOINT="$CHECKPOINT" \
+WINDOW="$WINDOW" GATE="$GATE" TOOLGATE="$TOOLGATE" EDITWARN="$EDITWARN" COMPACTGATE="$COMPACTGATE" CHECKPOINT="$CHECKPOINT" \
 HOOKS_DIR="$HOOKS_DIR" SETTINGS_PATH="$SETTINGS" MODE="$MODE" python3 -c '
 import json, os
 print(json.dumps({
@@ -78,6 +80,8 @@ print(json.dumps({
          "command": os.environ["TOOLGATE"]},
         {"event": "PreToolUse", "matcher": "Edit",
          "command": os.environ["EDITWARN"]},
+        {"event": "PreCompact", "matcher": "",
+         "command": os.environ["COMPACTGATE"]},
         {"event": "Stop", "matcher": "",
          "command": os.environ["CHECKPOINT"]},
     ],
@@ -115,6 +119,15 @@ if [ "$MODE" = install ]; then
 	else
 		echo "  | (no output with no transcript on stdin — correct, it only fires on Edit)"
 	fi
+	echo
+	echo "Verifying the compact gate..."
+	COMPACTGATE_OUT=$("$COMPACTGATE" </dev/null 2>&1) && COMPACTGATE_STATUS=0 || COMPACTGATE_STATUS=$?
+	[ -n "$COMPACTGATE_OUT" ] && printf '%s\n' "$COMPACTGATE_OUT" | sed 's/^/  | /'
+	if [ "$COMPACTGATE_STATUS" -eq 2 ]; then
+		echo "  | (exit 2 — compacts are refused until the window renews)"
+	else
+		echo "  | (exit 0 — compacts are allowed)"
+	fi
 	echo "Done. The window state above is what each new session will see;"
-	echo "the tool gate, edit-payload warning, and checkpoint hooks fire only when they trigger."
+	echo "the tool gate, edit-payload warning, compact gate, and checkpoint hooks fire only when they trigger."
 fi
