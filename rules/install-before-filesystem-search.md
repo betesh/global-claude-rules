@@ -19,10 +19,17 @@ The package manager already knows how to fetch the dependency into a location sc
 machine-wide search, and it's guaranteed to be the exact version the lockfile resolves to, rather
 than whatever unrelated checkout a `find` happens to turn up first.
 
+## Read its README before guessing at its usage
+
+Once it's installed, its own README is where its usage is documented — the flags it accepts, how
+to run a subset of what it does, its configuration. Read that before guessing, or before
+reverse-engineering the answer from a thin project-local wrapper that merely calls into it: the
+wrapper is rarely trying to restate docs the dependency already has.
+
 ## Scope
 
-- Applies whenever the goal is reading a dependency's API or source, and the project's package
-  manager can produce a local copy: `npm install`, `pip install`, `bundle install`, `go mod
+- Applies whenever the goal is reading a dependency's API, source, or usage docs, and the project's
+  package manager can produce a local copy: `npm install`, `pip install`, `bundle install`, `go mod
   download`, etc.
 - Reserve a filesystem-wide search for cases where the package manager can't produce a local copy
   at all.
