@@ -32,10 +32,22 @@ finished items into one commit. For plans, the same commit deletes the finished 
 file — load the `repo-plans` skill.
 
 If you discover an **unrelated** bug while working on something else, commit it separately with its
-own message — first if it blocks you, otherwise after. Do not land both in one diff.
+own message — first if it blocks you, otherwise after. Do not land both in one diff. If a real fix
+and unrelated data/fixture churn have already piled up uncommitted together, split them before
+committing rather than committing them as found: `git reset` (mixed — safe pre-push, leaves the
+working tree untouched) back to before the churn, commit the fix alone, then commit the data/fixture
+change together with everything that had to change because of it.
 
 ## Git safety
 
 Never update git config; never force-push or run destructive git unless asked. Check `git log -1`
 for message style. Write a concise 1–2 sentence message focused on **why**, using a HEREDOC. No
-empty commits.
+empty commits. If `origin` doesn't match what you expected — already ahead, already containing a
+commit you just made — that's not an anomaly to investigate (hooks, reflogs, shell history); when
+and what reaches origin is the user's call, not yours to audit.
+
+Before any `git commit --amend`, run `git status` / `git diff --staged` and confirm the index holds
+only what belongs in that commit — `--amend` replaces the previous commit with the index exactly as
+it stands, so a file staged ahead for the *next* commit rides along silently. If that happens
+anyway, `git reset HEAD~1` (mixed) un-commits back to working-tree changes without touching file
+contents, so it can be re-staged and re-committed split correctly.

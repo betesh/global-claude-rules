@@ -47,14 +47,16 @@ right format. Do not ask on a cadence.
 Once you say you are waiting until a time, do no work until then — no tool calls, no commits, no
 "one quick edit". Each is a round trip that re-sends the whole conversation.
 
-Sleep in the foreground (a plain blocking `sleep`), never `run_in_background`. Observed here: a
-backgrounded wait's completion did not resume an idle session by itself — every agent needed an
-explicit "continue" despite the wait finishing on schedule, because the harness only surfaces a
+Sleep in the foreground (a plain blocking `sleep`), never `run_in_background` — a backgrounded
+wait's completion does not resume an idle session by itself; the harness only surfaces a
 background task's notification on the next externally-driven turn. A foreground `sleep` blocks the
-same turn and hands control straight back when it returns, so the wait actually resolves unattended.
-When one wait outlasts a single blocking call, chain foreground `sleep` calls back to back rather
-than backgrounding — this is the wait itself, not a polling loop working around a limit, since each
-call still blocks until its own end and the session is never idle in between.
+same turn and hands control straight back when it returns, so the wait actually resolves
+unattended. When one wait outlasts a single blocking call, chain foreground `sleep` calls back to
+back across separate tool calls rather than backgrounding — this is still the wait itself, not a
+polling loop working around a limit, since each call blocks until its own end and the session is
+never idle in between. (The Bash tool's own "don't chain shorter sleeps" warning is about stacking
+several `sleep`s inside *one* command to dodge its per-call duration cap — a different thing from
+issuing separate foreground `sleep` calls, one wait per turn.)
 
 If the user prompts you mid-wait, that request is already spent: answer in one turn with **zero
 tool calls**, restate when you resume, stop. A question is not permission to resume. Two things do

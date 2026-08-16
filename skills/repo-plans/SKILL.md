@@ -18,6 +18,10 @@ Plan mode is read-only, so **the first action after approval is writing the plan
 first code edit. If the work is too small to warrant one, say so deliberately rather than silently
 skipping it. Editing an existing plan is not planning and does not need plan mode.
 
+For a large multi-phase plan, writing the file is a pause point, not a formality to rush past —
+give the user a chance to read the written plan before starting the first implementation step,
+even though the plan was already approved in conversation. A small plan doesn't need this pause.
+
 ## Structure
 
 Phases with `- [ ]` checklist items for remaining work. Put constraints, paths, algorithms, and
