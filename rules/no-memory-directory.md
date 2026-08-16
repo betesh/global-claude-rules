@@ -15,6 +15,12 @@ same content instead, routed by scope:
 - **Holds in one project, beyond any single plan** — a project convention, a standing fact about
   the codebase or how the user works on it, a correction specific to that repo: that project's
   `CLAUDE.md` (or its `.claude/rules/` if it already uses directory-scoped rules).
+- **Holds for a shared dependency, not for the project consuming it** — usage instructions or
+  conventions that belong to a library or tool the project pulls in, not to the project itself:
+  that dependency's own repo (its README or `CLAUDE.md`), not the consuming project's `CLAUDE.md`
+  and not `global-claude-rules` either, since it isn't universal to every repo. If the dependency
+  already documents it there, just delete the duplicate from the consuming project instead of
+  writing anything new.
 - **Holds only while a specific plan is being implemented**: the plan's own file under that
   project's `docs/plans/`.
 - **None of the above** — relevant only to the current conversation: don't persist it anywhere.
