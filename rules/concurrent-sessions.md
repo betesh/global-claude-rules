@@ -21,11 +21,9 @@ committed it, not that no work is needed.
   process, and compare that PID against the one in question.
 
 - When creating a new git worktree (via `EnterWorktree` or a manual `git worktree add`) as an
-  isolation mechanism for concurrent work, add its path to the project's `permissions.ask` rather
-  than leaving it covered by a broad `cd` allow rule. Routine navigation within a known repo
-  shouldn't need a prompt every time, but switching into a freshly created worktree is a context
-  switch worth surfacing explicitly — it's easy to lose track mid-session of which checkout is
-  active. Keep a broad `Bash(cd *)` in `allow` so unrelated navigation isn't gated by this.
+  isolation mechanism for concurrent work, add its specific path to the project's `permissions.ask`.
+  A freshly created worktree is a context switch worth surfacing explicitly — it's easy to lose
+  track mid-session of which checkout is active.
 
 ## Scope
 
