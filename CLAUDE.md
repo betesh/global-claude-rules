@@ -51,3 +51,25 @@ shared credit window; `hooks/usage_common.py` computes it, for `hooks/usage_repo
 `hooks/usage_gate.py`. See `rules/usage-limits-and-context.md`
 for what to log. Conclusions belong in `notes.md` as a description of what we know — not a dated
 log of when each thing was learned.
+
+### Keeping `notes.md` current
+
+- State current knowledge only, not the investigation that produced it. Superseded numbers, fixed
+  bugs, and corrected reports belong in git history and commit messages, not in the file. A
+  ruled-out cause for a still-open question is worth keeping, but trim it to the method and metric
+  that ruled it out, not the narrative around it.
+- Every per-window table stays sorted chronologically by window, even when the table's point is to
+  compare values across windows — insert a new window's row in order, and make any value-ordering
+  claim in the prose next to the table rather than by reordering rows.
+- When re-running or re-writing numbers derived from `usage/events.jsonl`, check whether additional
+  windows have renewed since the file was last updated, not only the window that was asked about —
+  list `renewed` events and compare against what's already in the tables.
+
+## Verify a rule's or plan's stated rationale
+
+Before defending, keeping, or restating why a rule in `rules/` or a mechanism in `hooks/` exists,
+trace its actual consumers in code rather than repeating the rule's own prose justification — grep
+`hooks/*.py` for what actually reads a given field or event kind. If nothing consumes it, say so
+and remove it rather than patching the rationale. The same applies to a plan's stated reasoning for
+why a moment or threshold matters: check it against `usage/events.jsonl` / `usage/notes.md` before
+carrying it forward, rather than accepting the plan's own intro prose as settled.
