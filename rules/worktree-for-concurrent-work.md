@@ -40,7 +40,8 @@ Compare the files/areas its in-progress changes touch against what this task nee
 
 - Run `git worktree list`. If one is idle — no other agent using it, per the check in step 1 —
   update it to the main worktree's current commit and do the work there.
-- If no idle worktree exists, create one under `/tmp`.
+- If no idle worktree exists, create one wherever the tooling defaults to — don't force a
+  particular location.
 
 Scope every git and test operation to the worktree you're using (`git -C <worktree>`, per
 `git-c-not-cd.md`) — never assume the main checkout mirrors it, and never run a destructive git
