@@ -15,6 +15,14 @@ conflict that was always coming.
 - Whether files are currently being edited: `git status` for uncommitted changes that aren't
   yours, recent mtimes on files you haven't touched.
 
+Do this check even when the task looks solo and the run is short — a live near-miss: two sessions
+shared one checkout (no worktree) on unrelated files; while one session had changes `git add`-ed,
+the other ran a commit that swept up those staged files into its own unrelated commit before
+self-correcting. No data was lost, but it was close, and would have been prevented entirely by a
+`ps` check before the first edit. "Unlikely to conflict on files" (step 2) does not mean "safe to
+share a working tree" — a shared index/staging area is a hazard on its own, independent of whether
+the *file contents* would ever conflict.
+
 See `concurrent-sessions.md` for confirming a PID is actually another agent rather than guessing
 from circumstantial evidence, and for what to do once you know work is shared.
 
