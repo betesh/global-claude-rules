@@ -51,6 +51,19 @@ When creating a new worktree, add its specific path to the project's `permission
 `concurrent-sessions.md` — a freshly created worktree is a context switch worth surfacing
 explicitly.
 
+## 4. Finish in isolation — merging is a human's job
+
+Once you've started work in a worktree, stay in it until the task is done. Don't check back on
+other worktrees, including the main one, to see how they're progressing or whether their state
+affects yours — that reintroduces the coupling the worktree was meant to remove. Merging a
+worktree's branch into the main branch is a human developer's decision, not something to do or
+propose from inside the agent's own turn: which branches land, in what order, and how conflicts
+between them get resolved is exactly the merge-time judgment call step 2 says a worktree cannot
+make for you.
+
+When the work is done, give the user the usual completion summary and say which worktree (path and
+branch) the changes are in. Leave the merge to them.
+
 ## Scope
 
 Applies to any repo that may be worked on by more than one agent concurrently. Doesn't mandate a
