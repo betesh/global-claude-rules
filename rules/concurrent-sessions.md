@@ -19,6 +19,13 @@ committed it, not that no work is needed.
   working directory, matching prompt text, nearby timestamps in a log. Verify by walking the
   current shell's own process ancestry (`$$` → parent PID → repeat) up to the enclosing `claude`
   process, and compare that PID against the one in question.
+- `ps`'s command column shows a `claude` process's *original* invocation argv, frozen at process
+  start — `/clear` resets the conversation but not that argv, so a session that was launched with
+  one task and later `/clear`ed into a different one still shows the old task text next to a live,
+  *current* PID. A `ps` hit whose command line names a task that looks stale, or unrelated to what
+  you're doing now, is not evidence of a second agent — it is at least as likely to be this same
+  session before its own `/clear`. Don't reason about it from the argv text at all; run the
+  ancestry walk and compare PIDs, which resolves it either way.
 
 - When creating a new git worktree (via `EnterWorktree` or a manual `git worktree add`) as an
   isolation mechanism for concurrent work, add its specific path to the project's `permissions.ask`.

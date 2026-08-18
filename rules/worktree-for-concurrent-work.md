@@ -14,6 +14,15 @@ conflict that was always coming.
 - `ps` (or equivalent) for another process rooted in this repo's directory.
 - Whether files are currently being edited: `git status` for uncommitted changes that aren't
   yours, recent mtimes on files you haven't touched.
+- Before treating any `ps` hit as a separate agent, confirm it actually is one: walk the current
+  shell's own process ancestry (`$$` → parent PID → repeat) up to the enclosing `claude` process
+  and compare that PID against the hit. This step is mandatory, not optional follow-up — a `ps`
+  hit is a candidate, not a conclusion, until this comparison rules out that it's your own
+  enclosing process. It routinely is: `/clear` resets the conversation but not the process's
+  original invocation argv, so your own session can show up in `ps` with a stale command line
+  naming a different, earlier task and still be the same PID the ancestry walk resolves to. A
+  mismatched task name in the command column is not evidence of a second agent by itself — see
+  `concurrent-sessions.md` for the full mechanics and for what to do once work is confirmed shared.
 
 Do this check even when the task looks solo and the run is short — a live near-miss: two sessions
 shared one checkout (no worktree) on unrelated files; while one session had changes `git add`-ed,
@@ -22,9 +31,6 @@ self-correcting. No data was lost, but it was close, and would have been prevent
 `ps` check before the first edit. "Unlikely to conflict on files" (step 2) does not mean "safe to
 share a working tree" — a shared index/staging area is a hazard on its own, independent of whether
 the *file contents* would ever conflict.
-
-See `concurrent-sessions.md` for confirming a PID is actually another agent rather than guessing
-from circumstantial evidence, and for what to do once you know work is shared.
 
 ## 2. If another agent is active, judge conflict potential
 
